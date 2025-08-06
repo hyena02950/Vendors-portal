@@ -8,7 +8,12 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start:backend": "cd server && npm start",
+    "dev:backend": "cd server && npm run dev",
+    "dev:full": "concurrently \"npm run dev\" \"npm run dev:backend\"",
+    "build:full": "npm run build && cd server && npm install --production",
+    "deploy:lightsail": "chmod +x lightsail-setup.sh && ./lightsail-setup.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
