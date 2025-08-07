@@ -1,12 +1,18 @@
 import { useState, useEffect, createContext, useContext } from "react";
-import { User, Session } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { setToken, setUser, removeToken, removeUser, getToken, getUser } from "@/utils/auth";
+
+interface User {
+  id: string;
+  email: string;
+  roles: string[];
+  vendorId?: string;
+  profile?: any;
+}
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, companyName?: string) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 }
@@ -14,57 +20,102 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    // Check for existing session on mount
+    const token = getToken();
+    const userData = getUser();
+    
+    if (token && userData) {
+      setUserState(userData);
+    }
+    
+    setLoading(false);
   }, []);
 
-  const signUp = async (email: string, password: string) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl
+  const signUp = async (email: string, password: string, companyName?: string) => {
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          password,
+          companyName,
+          contactPerson: email.split('@')[0]
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { error: { message: data.message || 'Registration failed' } };
       }
-    });
-    return { error };
+
+      setToken(data.token);
+      setUser(data.user);
+      setUserState(data.user);
+
+      return { error: null };
+    } catch (error) {
+      console.error('Sign up error:', error);
+      return { error: { message: 'Network error. Please try again.' } };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error };
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { error: { message: data.message || 'Login failed' } };
+      }
+
+      setToken(data.token);
+      setUser(data.user);
+      setUserState(data.user);
+
+      return { error: null };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      return { error: { message: 'Network error. Please try again.' } };
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      const token = getToken();
+      if (token) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Sign out error:', error);
+    } finally {
+      removeToken();
+      removeUser();
+      setUserState(null);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

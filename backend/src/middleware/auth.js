@@ -1,9 +1,5 @@
-const { createClient } = require('@supabase/supabase-js');
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
 
 const authenticateToken = async (req, res, next) => {
   try {
@@ -18,9 +14,10 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select('-password');
 
-    if (error || !user) {
+    if (!user || !user.isActive) {
       return res.status(401).json({
         error: true,
         message: 'Invalid or expired token',
@@ -28,26 +25,15 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    // Get user roles
-    const { data: roles, error: rolesError } = await supabase
-      .from('user_roles')
-      .select('role, vendor_id')
-      .eq('user_id', user.id);
-
-    if (rolesError) {
-      console.error('Error fetching user roles:', rolesError);
-    }
-
     req.user = user;
-    req.userRoles = roles || [];
-    req.supabase = supabase;
+    req.userRoles = user.roles;
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
-    res.status(500).json({
+    res.status(401).json({
       error: true,
-      message: 'Authentication error',
-      code: 'AUTH_ERROR'
+      message: 'Invalid token',
+      code: 'INVALID_TOKEN'
     });
   }
 };
@@ -91,7 +77,7 @@ const requireVendorAccess = (req, res, next) => {
     });
   }
 
-  req.vendorId = vendorRoles[0].vendor_id;
+  req.vendorId = vendorRoles[0].vendorId;
   next();
 };
 

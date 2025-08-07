@@ -9,10 +9,10 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start:backend": "cd server && npm start",
-    "dev:backend": "cd server && npm run dev",
+    "start:backend": "cd backend && npm start",
+    "dev:backend": "cd backend && npm run dev",
     "dev:full": "concurrently \"npm run dev\" \"npm run dev:backend\"",
-    "build:full": "npm run build && cd server && npm install --production",
+    "build:full": "npm run build && cd backend && npm install --production",
     "deploy:lightsail": "chmod +x lightsail-setup.sh && ./lightsail-setup.sh"
   },
   "dependencies": {

@@ -1,11 +1,22 @@
 const express = require('express');
 const multer = require('multer');
+const path = require('path');
+const Invoice = require('../models/Invoice');
 const { authenticateToken, requireVendorAccess, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
 // Configure multer for invoice uploads
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(__dirname, '../../uploads/invoices'));
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
 const upload = multer({
   storage,
   limits: {
@@ -38,50 +49,33 @@ router.post('/upload', authenticateToken, requireVendorAccess, upload.single('in
       });
     }
 
-    let invoiceUrl = null;
-    if (req.file) {
-      // Upload invoice to Supabase storage
-      const fileName = `${invoiceNumber}-${Date.now()}.pdf`;
-      const filePath = `invoices/${req.vendorId}/${fileName}`;
-
-      const { data: uploadData, error: uploadError } = await req.supabase.storage
-        .from('vendor-invoices')
-        .upload(filePath, req.file.buffer, {
-          contentType: 'application/pdf',
-          cacheControl: '3600'
-        });
-
-      if (uploadError) {
-        console.error('Invoice upload error:', uploadError);
-      } else {
-        const { data: { publicUrl } } = req.supabase.storage
-          .from('vendor-invoices')
-          .getPublicUrl(filePath);
-        invoiceUrl = publicUrl;
-      }
+    // Check if invoice number already exists
+    const existingInvoice = await Invoice.findOne({ invoiceNumber });
+    if (existingInvoice) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invoice number already exists',
+        code: 'INVOICE_EXISTS'
+      });
     }
 
-    // Insert invoice record
-    const { data: invoice, error: invoiceError } = await req.supabase
-      .from('invoices')
-      .insert({
-        vendor_id: req.vendorId,
-        invoice_number: invoiceNumber,
-        job_id: jobId,
-        candidate_name: candidateName,
-        amount: parseFloat(amount),
-        invoice_url: invoiceUrl,
-        status: 'pending',
-        uploaded_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const invoiceUrl = req.file ? `/uploads/invoices/${req.file.filename}` : null;
 
-    if (invoiceError) throw invoiceError;
+    const invoice = new Invoice({
+      invoiceNumber,
+      vendorId: req.vendorId,
+      jobId,
+      candidateName,
+      amount: parseFloat(amount),
+      invoiceUrl,
+      uploadedBy: req.user._id
+    });
+
+    await invoice.save();
 
     res.status(201).json({
       message: 'Invoice uploaded successfully',
-      invoiceId: invoice.invoice_number,
+      invoiceId: invoice.invoiceNumber,
       status: 'pending_approval'
     });
   } catch (error) {
@@ -98,38 +92,35 @@ router.post('/upload', authenticateToken, requireVendorAccess, upload.single('in
 router.get('/my-invoices', authenticateToken, requireVendorAccess, async (req, res) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
-    const offset = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-    let query = req.supabase
-      .from('invoices')
-      .select('*')
-      .eq('vendor_id', req.vendorId)
-      .order('uploaded_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
+    let query = { vendorId: req.vendorId };
     if (status) {
-      query = query.eq('status', status);
+      query.status = status;
     }
 
-    const { data, error, count } = await query;
+    const invoices = await Invoice.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
 
-    if (error) throw error;
+    const totalCount = await Invoice.countDocuments(query);
 
-    const invoices = data?.map(invoice => ({
-      id: invoice.id,
-      invoiceNumber: invoice.invoice_number,
-      jobId: invoice.job_id,
-      candidateName: invoice.candidate_name,
+    const invoicesData = invoices.map(invoice => ({
+      id: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      jobId: invoice.jobId,
+      candidateName: invoice.candidateName,
       amount: invoice.amount,
       status: invoice.status,
-      uploadedDate: new Date(invoice.uploaded_at).toLocaleDateString(),
-      approvedDate: invoice.approved_at ? new Date(invoice.approved_at).toLocaleDateString() : null,
-      paidDate: invoice.paid_at ? new Date(invoice.paid_at).toLocaleDateString() : null
-    })) || [];
+      uploadedDate: invoice.createdAt.toLocaleDateString(),
+      approvedDate: invoice.approvedAt ? invoice.approvedAt.toLocaleDateString() : null,
+      paidDate: invoice.paidAt ? invoice.paidAt.toLocaleDateString() : null
+    }));
 
     res.json({
-      invoices,
-      totalCount: count || 0,
+      invoices: invoicesData,
+      totalCount,
       currentPage: parseInt(page)
     });
   } catch (error) {
@@ -158,23 +149,26 @@ router.patch('/:id/status', authenticateToken, requireRole(['elika_admin', 'fina
 
     const updateData = {
       status,
-      review_notes: notes || null,
-      reviewed_by: req.user.id,
-      reviewed_at: new Date().toISOString()
+      reviewNotes: notes || null,
+      reviewedBy: req.user._id,
+      reviewedAt: new Date()
     };
 
     if (status === 'approved') {
-      updateData.approved_at = new Date().toISOString();
+      updateData.approvedAt = new Date();
     } else if (status === 'paid') {
-      updateData.paid_at = new Date().toISOString();
+      updateData.paidAt = new Date();
     }
 
-    const { error } = await req.supabase
-      .from('invoices')
-      .update(updateData)
-      .eq('id', invoiceId);
+    const invoice = await Invoice.findByIdAndUpdate(invoiceId, updateData, { new: true });
 
-    if (error) throw error;
+    if (!invoice) {
+      return res.status(404).json({
+        error: true,
+        message: 'Invoice not found',
+        code: 'INVOICE_NOT_FOUND'
+      });
+    }
 
     res.json({ message: `Invoice ${status} successfully` });
   } catch (error) {

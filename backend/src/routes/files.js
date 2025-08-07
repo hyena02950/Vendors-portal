@@ -1,4 +1,8 @@
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const Candidate = require('../models/Candidate');
+const Invoice = require('../models/Invoice');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
@@ -8,22 +12,8 @@ router.get('/resume/:candidateId', authenticateToken, async (req, res) => {
   try {
     const { candidateId } = req.params;
 
-    // Get candidate data
-    const { data: candidate, error } = await req.supabase
-      .from('candidates')
-      .select('resume_url, name')
-      .eq('candidate_id', candidateId)
-      .single();
-
-    if (error || !candidate) {
-      return res.status(404).json({
-        error: true,
-        message: 'Candidate not found',
-        code: 'CANDIDATE_NOT_FOUND'
-      });
-    }
-
-    if (!candidate.resume_url) {
+    const candidate = await Candidate.findOne({ candidateId });
+    if (!candidate || !candidate.resumeUrl) {
       return res.status(404).json({
         error: true,
         message: 'Resume not found',
@@ -31,8 +21,17 @@ router.get('/resume/:candidateId', authenticateToken, async (req, res) => {
       });
     }
 
-    // Redirect to the resume URL
-    res.redirect(candidate.resume_url);
+    const filePath = path.join(__dirname, '../../', candidate.resumeUrl);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: true,
+        message: 'Resume file not found',
+        code: 'FILE_NOT_FOUND'
+      });
+    }
+
+    res.download(filePath, `${candidate.name}_resume.pdf`);
   } catch (error) {
     console.error('Error downloading resume:', error);
     res.status(500).json({
@@ -48,14 +47,8 @@ router.get('/invoice/:invoiceId', authenticateToken, async (req, res) => {
   try {
     const { invoiceId } = req.params;
 
-    // Get invoice data
-    const { data: invoice, error } = await req.supabase
-      .from('invoices')
-      .select('invoice_url, invoice_number')
-      .eq('id', invoiceId)
-      .single();
-
-    if (error || !invoice) {
+    const invoice = await Invoice.findById(invoiceId);
+    if (!invoice || !invoice.invoiceUrl) {
       return res.status(404).json({
         error: true,
         message: 'Invoice not found',
@@ -63,16 +56,17 @@ router.get('/invoice/:invoiceId', authenticateToken, async (req, res) => {
       });
     }
 
-    if (!invoice.invoice_url) {
+    const filePath = path.join(__dirname, '../../', invoice.invoiceUrl);
+    
+    if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: true,
         message: 'Invoice file not found',
-        code: 'INVOICE_FILE_NOT_FOUND'
+        code: 'FILE_NOT_FOUND'
       });
     }
 
-    // Redirect to the invoice URL
-    res.redirect(invoice.invoice_url);
+    res.download(filePath, `${invoice.invoiceNumber}.pdf`);
   } catch (error) {
     console.error('Error downloading invoice:', error);
     res.status(500).json({
