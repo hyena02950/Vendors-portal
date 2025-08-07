@@ -43,27 +43,44 @@ npm run build
 
 # Install backend dependencies
 echo "📦 Installing backend dependencies..."
-cd server
+cd backend
 npm install
 cd ..
 
+# Install MongoDB
+echo "📦 Installing MongoDB..."
+wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+sudo apt-get update
+sudo apt-get install -y mongodb-org
+
+# Start and enable MongoDB
+sudo systemctl start mongod
+sudo systemctl enable mongod
+
 # Create environment file
-echo "⚙️ Creating environment configuration..."
-sudo tee /var/www/elika-portal/server/.env > /dev/null <<EOF
+echo "⚙️ Creating backend environment configuration..."
+sudo tee /var/www/elika-portal/backend/.env > /dev/null <<EOF
 # Production Environment Configuration
 NODE_ENV=production
 PORT=3001
 FRONTEND_URL=https://$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)
 
-# Supabase Configuration (replace with your actual values)
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# MongoDB Configuration
+MONGODB_URI=mongodb://localhost:27017/elika-vendor-portal
+
+# JWT Configuration
+JWT_SECRET=$(openssl rand -base64 32)
+JWT_EXPIRES_IN=24h
+
+# File Upload Configuration
+MAX_FILE_SIZE=10485760
+ALLOWED_FILE_TYPES=pdf,doc,docx,jpg,png
+UPLOAD_PATH=uploads
 
 # Add other environment variables as needed
 EOF
 
-echo "⚠️  IMPORTANT: Please update the .env file with your actual Supabase credentials!"
 
 # Configure Nginx
 echo "🌐 Configuring Nginx..."

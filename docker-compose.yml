@@ -1,6 +1,21 @@
 version: '3.8'
 
 services:
+  mongodb:
+    image: mongo:6.0
+    container_name: elika-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: elika-vendor-portal
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - elika-network
+
   frontend:
     build:
       context: .
@@ -10,6 +25,7 @@ services:
     environment:
       - NODE_ENV=production
     depends_on:
+      - mongodb
       - backend
     networks:
       - elika-network
@@ -23,11 +39,13 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - MONGODB_URI=mongodb://mongodb:27017/elika-vendor-portal
+      - JWT_SECRET=${JWT_SECRET}
     volumes:
-      - ./server/.env:/app/.env:ro
+      - ./backend/.env:/app/.env:ro
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - mongodb
     networks:
       - elika-network
     restart: unless-stopped
@@ -58,3 +76,4 @@ networks:
 
 volumes:
   app_data:
+  mongodb_data:
