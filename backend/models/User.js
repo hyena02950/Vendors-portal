@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
       required: function() {
-        return this.role.startsWith('vendor');
+        return ['vendor_admin', 'vendor_recruiter'].includes(this.role);
       }
     }
   }],
@@ -74,7 +74,7 @@ userSchema.methods.hasRole = function(role) {
 
 // Get vendor ID for vendor users
 userSchema.methods.getVendorId = function() {
-  const vendorRole = this.roles.find(r => r.role.startsWith('vendor'));
+  const vendorRole = this.roles.find(r => ['vendor_admin', 'vendor_recruiter'].includes(r.role));
   return vendorRole ? vendorRole.vendorId : null;
 };
 

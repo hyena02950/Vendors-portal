@@ -12,8 +12,7 @@ const invoiceSchema = new mongoose.Schema({
     required: true
   },
   jobId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'JobDescription',
+    type: String,
     required: true
   },
   candidateName: {
