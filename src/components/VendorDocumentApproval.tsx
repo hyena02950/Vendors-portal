@@ -129,6 +129,13 @@ export const VendorDocumentApproval = () => {
 
   useEffect(() => {
     fetchDocuments();
+    
+    // Set up polling for real-time updates (replacing Supabase real-time)
+    const interval = setInterval(fetchDocuments, 30000); // Poll every 30 seconds
+    
+    return () => {
+      clearInterval(interval);
+    };
   }, []);
 
   const getStatusIcon = (status: string) => {

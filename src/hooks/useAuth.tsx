@@ -11,6 +11,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  session: any; // For compatibility with existing components
   loading: boolean;
   signUp: (email: string, password: string, companyName?: string) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
@@ -29,12 +30,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const userData = getUser();
     
     if (token && userData) {
+      // Verify token is still valid by checking with backend
+      verifyToken(token, userData);
+    } else {
       setUserState(userData);
+    }
     }
     
     setLoading(false);
   }, []);
 
+  const verifyToken = async (token: string, userData: User) => {
+    try {
+      const response = await fetch('/api/auth/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserState(data.user);
+      } else {
+        // Token is invalid, clear auth data
+        removeToken();
+        removeUser();
+        setUserState(null);
+      }
+    } catch (error) {
+      console.error('Token verification error:', error);
+      // On error, keep existing user data but log the issue
+      setUserState(userData);
+    }
+  };
   const signUp = async (email: string, password: string, companyName?: string) => {
     try {
       const response = await fetch('/api/auth/register', {
@@ -115,7 +143,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session: { user }, loading, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

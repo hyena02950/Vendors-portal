@@ -10,7 +10,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LogIn, UserPlus, Eye, EyeOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 
 export default function Login() {
   const { signIn, signUp, user, loading } = useAuth();
@@ -82,7 +81,6 @@ export default function Login() {
     setError(null);
 
     try {
-      // Sign up user with company name in metadata
       const { error } = await signUp(email, password);
       
       if (error) {
@@ -93,12 +91,11 @@ export default function Login() {
           variant: "destructive",
         });
       } else {
-        // Store company name in localStorage temporarily for use after email verification
         localStorage.setItem('pendingCompanyName', companyName);
         
         toast({
           title: "Account Created!",
-          description: "Please check your email to verify your account, then you can create your vendor profile.",
+          description: "Your account has been created successfully. You can now create your vendor profile.",
         });
         setActiveTab("login");
       }

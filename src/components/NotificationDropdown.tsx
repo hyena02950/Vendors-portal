@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUserRole } from "@/hooks/useUserRole";
-import { supabase } from "@/integrations/supabase/client";
+import { getToken } from "@/utils/auth";
 
 interface Notification {
   id: string;
@@ -29,51 +29,121 @@ export const NotificationDropdown = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Mock notifications for demo purposes
   useEffect(() => {
-    const mockNotifications: Notification[] = [
-      {
-        id: '1',
-        title: 'New Job Assignment',
-        message: 'You have been assigned to a new job posting: Senior React Developer',
-        type: 'info',
-        read: false,
-        created_at: new Date().toISOString()
-      },
-      {
-        id: '2',
-        title: 'Document Approved',
-        message: 'Your MSA document has been approved by the admin team',
-        type: 'success',
-        read: false,
-        created_at: new Date(Date.now() - 3600000).toISOString()
-      },
-      {
-        id: '3',
-        title: 'Interview Scheduled',
-        message: 'Interview scheduled for candidate John Doe on tomorrow at 2:00 PM',
-        type: 'info',
-        read: true,
-        created_at: new Date(Date.now() - 7200000).toISOString()
-      }
-    ];
-
-    setNotifications(mockNotifications);
-    setUnreadCount(mockNotifications.filter(n => !n.read).length);
+    fetchNotifications();
+    
+    // Set up polling for notifications (replacing Supabase real-time)
+    const interval = setInterval(fetchNotifications, 60000); // Poll every minute
+    
+    return () => {
+      clearInterval(interval);
+    };
   }, []);
 
-  const markAsRead = (notificationId: string) => {
-    setNotifications(prev => 
-      prev.map(n => 
-        n.id === notificationId ? { ...n, read: true } : n
-      )
-    );
-    setUnreadCount(prev => Math.max(0, prev - 1));
+  const fetchNotifications = async () => {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch('/api/notifications', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setNotifications(data.notifications || []);
+        setUnreadCount(data.notifications?.filter(n => !n.read).length || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      // Fallback to mock data if API fails
+      const mockNotifications: Notification[] = [
+        {
+          id: '1',
+          title: 'New Job Assignment',
+          message: 'You have been assigned to a new job posting: Senior React Developer',
+          type: 'info',
+          read: false,
+          created_at: new Date().toISOString()
+        },
+        {
+          id: '2',
+          title: 'Document Approved',
+          message: 'Your MSA document has been approved by the admin team',
+          type: 'success',
+          read: false,
+          created_at: new Date(Date.now() - 3600000).toISOString()
+        },
+        {
+          id: '3',
+          title: 'Interview Scheduled',
+          message: 'Interview scheduled for candidate John Doe on tomorrow at 2:00 PM',
+          type: 'info',
+          read: true,
+          created_at: new Date(Date.now() - 7200000).toISOString()
+        }
+      ];
+
+      setNotifications(mockNotifications);
+      setUnreadCount(mockNotifications.filter(n => !n.read).length);
+    }
+  };
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch(`/api/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setNotifications(prev => 
+          prev.map(n => 
+            n.id === notificationId ? { ...n, read: true } : n
+          )
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      // Still update UI optimistically
+      setNotifications(prev => 
+        prev.map(n => 
+          n.id === notificationId ? { ...n, read: true } : n
+        )
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    }
   };
 
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    setUnreadCount(0);
+  const markAllAsRead = async () => {
+    try {
+      const token = getToken();
+      if (!token) return;
+
+      const response = await fetch('/api/notifications/mark-all-read', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        setUnreadCount(0);
+      }
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      // Still update UI optimistically
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadCount(0);
+    }
   };
 
   const getNotificationIcon = (type: string) => {

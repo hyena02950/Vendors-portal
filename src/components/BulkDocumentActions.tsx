@@ -5,7 +5,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { CheckCircle, XCircle, RotateCcw } from "lucide-react";
 import {
   Dialog,
@@ -15,6 +14,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { getToken } from "@/utils/auth";
 
 interface BulkDocumentActionsProps {
   documents: any[];
@@ -66,29 +66,26 @@ export const BulkDocumentActions = ({ documents, onRefresh }: BulkDocumentAction
     
     setIsProcessing(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      const token = getToken();
+      if (!token) throw new Error('User not authenticated');
 
-      const updates = selectedDocs.map(docId => ({
-        id: docId,
-        status: bulkAction as 'approved' | 'rejected',
-        review_notes: bulkNotes || null,
-        reviewed_by: user.id,
-        reviewed_at: new Date().toISOString(),
-      }));
+      // Process bulk action via API
+      const response = await fetch('/api/vendors/documents/bulk-review', {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentIds: selectedDocs,
+          status: bulkAction,
+          reviewNotes: bulkNotes || null,
+        }),
+      });
 
-      for (const update of updates) {
-        const { error } = await supabase
-          .from('vendor_documents')
-          .update({
-            status: update.status,
-            review_notes: update.review_notes,
-            reviewed_by: update.reviewed_by,
-            reviewed_at: update.reviewed_at,
-          })
-          .eq('id', update.id);
-
-        if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to process bulk action');
       }
 
       toast({

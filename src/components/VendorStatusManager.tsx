@@ -3,9 +3,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Check, X, Clock, AlertCircle } from "lucide-react";
+import { getToken } from "@/utils/auth";
 
 type VendorStatus = "pending" | "active" | "inactive" | "rejected";
 
@@ -40,13 +40,23 @@ export const VendorStatusManager = ({ vendorId, currentStatus, onStatusChanged }
     setIsUpdating(true);
 
     try {
-      const { error } = await supabase
-        .from('vendors')
-        .update({ status: selectedStatus })
-        .eq('id', vendorId);
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (error) {
-        throw error;
+      const response = await fetch(`/api/vendors/${vendorId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: selectedStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update vendor status');
       }
 
       toast({
