@@ -12,16 +12,16 @@ import { UserPlus, Trash2, RefreshCw } from "lucide-react";
 import { getToken } from "@/utils/auth";
 
 interface RoleAssignment {
-  id: string;
-  user_id: string;
+  _id: string;
+  userId: string;
   role: AppRole;
-  vendor_id: string | null;
-  created_at: string;
-  vendor_name?: string;
+  vendorId: string | null;
+  createdAt: string;
+  vendorName?: string;
 }
 
 interface Vendor {
-  id: string;
+  _id: string;
   name: string;
 }
 
@@ -60,7 +60,7 @@ export const RoleManagement = () => {
       console.log("User profiles fetched for role management:", data);
       const profileMap: {[key: string]: string} = {};
       data.profiles?.forEach((profile: any) => {
-        profileMap[profile.id] = profile.contact_person || profile.email || 'Unknown';
+        profileMap[profile._id] = profile.name || profile.email || 'Unknown';
       });
       
       setUserProfiles(profileMap);
@@ -123,7 +123,18 @@ export const RoleManagement = () => {
         return;
       }
 
-      setRoles(data.roles as RoleAssignment[]);
+      // Transform data to match frontend expectations
+      const transformedRoles = data.roles.map((role: any) => ({
+        _id: role._id,
+        userId: role.userId,
+        role: role.role,
+        vendorId: role.vendorId || null,
+        createdAt: role.createdAt,
+        vendorName: role.vendorId ? 
+          vendors.find(v => v._id === role.vendorId)?.name : undefined
+      }));
+
+      setRoles(transformedRoles);
     } catch (error) {
       console.error('Unexpected error fetching roles:', error);
       toast({
@@ -174,47 +185,11 @@ export const RoleManagement = () => {
     if (isElikaAdmin) {
       const loadData = async () => {
         setLoading(true);
-        await Promise.all([fetchRoles(), fetchVendors(), fetchUserProfiles()]);
+        await fetchVendors(); // Fetch vendors first
+        await Promise.all([fetchRoles(), fetchUserProfiles()]);
         setLoading(false);
       };
       loadData();
-
-      // Set up real-time subscription for vendor changes
-      const vendorChannel = supabase
-        .channel('vendor-changes-role-management')
-        .on('postgres_changes', 
-          { 
-            event: '*', 
-            schema: 'public', 
-            table: 'vendors'
-          }, 
-          (payload) => {
-            console.log('Vendor change detected in role management:', payload);
-            fetchVendors();
-          }
-        )
-        .subscribe();
-
-      // Set up real-time subscription for role changes
-      const roleChannel = supabase
-        .channel('role-changes')
-        .on('postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'user_roles'
-          },
-          (payload) => {
-            console.log('Role change detected:', payload);
-            fetchRoles();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(vendorChannel);
-        supabase.removeChannel(roleChannel);
-      };
     } else {
       setLoading(false);
     }
@@ -436,7 +411,7 @@ export const RoleManagement = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {vendors.map((vendor) => (
-                          <SelectItem key={vendor.id} value={vendor.id}>
+                          <SelectItem key={vendor._id} value={vendor._id}>
                             {vendor.name}
                           </SelectItem>
                         ))}
@@ -457,15 +432,15 @@ export const RoleManagement = () => {
         <div className="space-y-4">
           {roles.length > 0 ? (
             roles.map((role) => (
-              <div key={role.id} className="flex items-center justify-between p-4 border rounded-lg">
+              <div key={role._id} className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex items-center space-x-3">
                   <div>
                     <div className="font-medium">
-                      {userProfiles[role.user_id] || role.user_id}
+                      {userProfiles[role.userId] || role.userId}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {role.vendor_name && `${role.vendor_name} • `}
-                      Added: {new Date(role.created_at).toLocaleDateString()}
+                      {role.vendorName && `${role.vendorName} • `}
+                      Added: {new Date(role.createdAt).toLocaleDateString()}
                     </div>
                   </div>
                 </div>
@@ -478,7 +453,7 @@ export const RoleManagement = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleRemoveRole(role.id, role.user_id, getRoleLabel(role.role))}
+                    onClick={() => handleRemoveRole(role._id, role.userId, getRoleLabel(role.role))}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
