@@ -1,9 +1,9 @@
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useToast } from "@/hooks/use-toast";
+import { getToken } from "@/utils/auth";
 
 export type ApplicationStatus = 'draft' | 'submitted' | 'under_review' | 'approved' | 'rejected';
 
@@ -40,19 +40,22 @@ export const useVendorApplication = () => {
     try {
       console.log('Fetching vendor application for vendor:', vendorId);
       
-      const { data, error } = await supabase
-        .from('vendor_applications')
-        .select('*')
-        .eq('vendor_id', vendorId)
-        .single();
+      const token = getToken();
+      if (!token) return;
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "not found" error
-        console.error('Error fetching vendor application:', error);
-        throw error;
+      const response = await fetch(`/api/vendors/${vendorId}/application`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Vendor application fetched:', data);
+        setApplication(data.application || null);
+      } else if (response.status !== 404) {
+        throw new Error('Failed to fetch application');
       }
-
-      console.log('Vendor application fetched:', data);
-      setApplication(data || null);
     } catch (error) {
       console.error('Error fetching vendor application:', error);
       toast({
@@ -66,10 +69,11 @@ export const useVendorApplication = () => {
   };
 
   const submitApplication = async () => {
-    if (!vendorId || !user) {
+    const token = getToken();
+    if (!vendorId || !token) {
       toast({
         title: "Error",
-        description: "User information not available",
+        description: "Authentication information not available",
         variant: "destructive",
       });
       return false;
@@ -78,27 +82,22 @@ export const useVendorApplication = () => {
     try {
       console.log('Submitting vendor application for vendor:', vendorId);
 
-      const applicationData = {
-        vendor_id: vendorId,
-        status: 'submitted' as ApplicationStatus,
-        submitted_at: new Date().toISOString()
-      };
+      const response = await fetch(`/api/vendors/${vendorId}/application/submit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-      const { data, error } = await supabase
-        .from('vendor_applications')
-        .upsert(applicationData, {
-          onConflict: 'vendor_id'
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error submitting application:', error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to submit application');
       }
 
+      const data = await response.json();
       console.log('Application submitted successfully:', data);
-      setApplication(data);
+      setApplication(data.application);
       
       toast({
         title: "Application Submitted",
@@ -134,30 +133,27 @@ export const useVendorApplication = () => {
     try {
       console.log('Updating application status:', applicationId, status);
 
-      const updateData: any = {
-        status,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: user?.id,
-        updated_at: new Date().toISOString()
-      };
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (reviewNotes) {
-        updateData.review_notes = reviewNotes;
+      const response = await fetch(`/api/vendors/applications/${applicationId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status,
+          reviewNotes,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update application status');
       }
 
-      const { data, error } = await supabase
-        .from('vendor_applications')
-        .update(updateData)
-        .eq('id', applicationId)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error updating application status:', error);
-        throw error;
-      }
-
-      console.log('Application status updated:', data);
+      console.log('Application status updated successfully');
       
       toast({
         title: "Application Updated",

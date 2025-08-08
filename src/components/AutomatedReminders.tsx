@@ -7,7 +7,6 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { Bell, Clock, Send, Settings } from "lucide-react";
 import {
   Dialog,
@@ -16,6 +15,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { getToken } from "@/utils/auth";
 
 interface ReminderSettings {
   enabled: boolean;
@@ -50,21 +50,22 @@ export const AutomatedReminders = () => {
   const fetchPendingReminders = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('vendor_documents')
-        .select(`
-          id,
-          document_type,
-          uploaded_at,
-          vendors!inner (
-            name
-          )
-        `)
-        .eq('status', 'pending');
+      const token = getToken();
+      if (!token) return;
 
-      if (error) throw error;
+      const response = await fetch('/api/vendors/documents/pending-reminders', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
 
-      const reminders: PendingReminder[] = data?.map(doc => {
+      if (!response.ok) {
+        throw new Error('Failed to fetch pending reminders');
+      }
+
+      const data = await response.json();
+
+      const reminders: PendingReminder[] = data.documents?.map(doc => {
         const daysPending = Math.floor(
           (Date.now() - new Date(doc.uploaded_at).getTime()) / (1000 * 60 * 60 * 24)
         );
@@ -72,7 +73,7 @@ export const AutomatedReminders = () => {
         return {
           id: doc.id,
           document_type: doc.document_type,
-          vendor_name: (doc as any).vendors.name,
+          vendor_name: doc.vendor_name,
           days_pending: daysPending,
           reminder_count: 0, // This would come from a reminders tracking table
         };

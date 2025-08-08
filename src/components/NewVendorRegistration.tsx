@@ -6,9 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Building } from "lucide-react";
+import { getToken } from "@/utils/auth";
 
 interface NewVendorRegistrationProps {
   onVendorCreated: (vendorId: string) => void;
@@ -38,21 +38,16 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!user || !session) {
+    const token = getToken();
+    if (!user || !token) {
       console.error('No authenticated user or session found');
       toast({
         title: "Authentication Error",
-        description: "You must be logged in to register a vendor. Please log in and try again.",
+        description: "You must be logged in to register a vendor.",
         variant: "destructive",
       });
       return;
     }
-
-    console.log('Current user for vendor registration:', { 
-      id: user.id, 
-      email: user.email, 
-      sessionExists: !!session 
-    });
 
     if (!formData.name || !formData.email || !formData.contact_person) {
       toast({
@@ -66,105 +61,33 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
     setLoading(true);
 
     try {
-      // First ensure the user profile exists
-      console.log('Ensuring user profile exists for vendor registration');
-      const { data: existingProfile, error: profileCheckError } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('id', user.id)
-        .single();
+      const response = await fetch('/api/vendors', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          address: formData.address,
+          contactPerson: formData.contact_person,
+        }),
+      });
 
-      if (profileCheckError && profileCheckError.code !== 'PGRST116') {
-        console.error('Error checking user profile:', profileCheckError);
-        throw new Error('Failed to verify user profile');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create vendor');
       }
 
-      if (!existingProfile) {
-        console.log('Creating user profile for vendor registration');
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert([{
-            id: user.id,
-            company_name: formData.name,
-            contact_person: formData.contact_person,
-            phone: formData.phone,
-            address: formData.address,
-            email: formData.email
-          }]);
+      const data = await response.json();
+      console.log('Vendor created successfully:', data);
 
-        if (profileError) {
-          console.error('Error creating user profile:', profileError);
-          throw new Error('Failed to create user profile');
-        }
-      }
-
-      // Create vendor with correct data structure
-      const vendorInsertData = {
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        phone: formData.phone?.trim() || null,
-        address: formData.address?.trim() || null,
-        contact_person: formData.contact_person.trim(),
-        status: 'pending' as const,
-        created_by: user.id
-      };
-      
-      console.log('Creating vendor with data:', vendorInsertData);
-
-      const { data: vendor, error: vendorError } = await supabase
-        .from('vendors')
-        .insert([vendorInsertData])
-        .select()
-        .single();
-
-      if (vendorError) {
-        console.error('Vendor creation error details:', {
-          error: vendorError,
-          message: vendorError.message,
-          details: vendorError.details,
-          hint: vendorError.hint,
-          code: vendorError.code
-        });
-        
-        if (vendorError.code === '42501') {
-          throw new Error('Permission denied. Please ensure you are logged in and try again.');
-        } else if (vendorError.code === '23505') {
-          throw new Error('A vendor with this email already exists.');
-        } else {
-          throw new Error(vendorError.message || 'Failed to create vendor profile');
-        }
-      }
-
-      console.log('Vendor created successfully:', vendor);
-
-      // Create vendor_admin role for the user
-      const roleData = {
-        user_id: user.id,
-        role: 'vendor_admin' as const,
-        vendor_id: vendor.id
-      };
-
-      console.log('Creating vendor admin role with data:', roleData);
-
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert([roleData]);
-
-      if (roleError) {
-        console.error('Role creation error:', roleError);
-        toast({
-          title: "Vendor Created",
-          description: "Vendor profile created but role assignment failed. Please contact an administrator.",
-          variant: "destructive",
-        });
-      } else {
-        console.log('Vendor admin role created successfully');
-        toast({
-          title: "Vendor Registered",
-          description: "Your vendor profile has been created successfully and is pending approval.",
-        });
-      }
-
+      toast({
+        title: "Vendor Registered",
+        description: "Your vendor profile has been created successfully and is pending approval.",
+      });
       // Reset form
       setFormData({
         name: "",
@@ -174,7 +97,7 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
         contact_person: "",
       });
 
-      onVendorCreated(vendor.id);
+      onVendorCreated(data.vendor.id);
     } catch (error: any) {
       console.error('Error in vendor registration process:', error);
       toast({

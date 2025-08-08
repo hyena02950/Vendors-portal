@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { 
   ArrowRight, 
   CheckCircle, 
@@ -15,6 +14,7 @@ import {
   User,
   Building
 } from "lucide-react";
+import { getToken } from "@/utils/auth";
 
 interface WorkflowStep {
   id: string;
@@ -84,28 +84,24 @@ export const WorkflowStatusManager = () => {
   const fetchWorkflowData = async () => {
     setLoading(true);
     try {
-      // Fetch vendors with their applications and documents
-      const { data: vendors, error: vendorsError } = await supabase
-        .from('vendors')
-        .select(`
-          id,
-          name,
-          status,
-          vendor_applications (
-            status,
-            submitted_at
-          ),
-          vendor_documents (
-            status,
-            document_type
-          )
-        `);
+      const token = getToken();
+      if (!token) return;
 
-      if (vendorsError) throw vendorsError;
+      const response = await fetch('/api/vendors/workflow-status', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch workflow data');
+      }
+
+      const { vendors } = await response.json();
 
       const workflowData: VendorWorkflow[] = vendors?.map(vendor => {
-        const docs = vendor.vendor_documents || [];
-        const application = vendor.vendor_applications?.[0];
+        const docs = vendor.documents || [];
+        const application = vendor.application;
         
         const totalDocs = docs.length;
         const approvedDocs = docs.filter(d => d.status === 'approved').length;
@@ -214,20 +210,10 @@ export const WorkflowStatusManager = () => {
     fetchWorkflowData();
     
     // Set up real-time updates
-    const channel = supabase
-      .channel('workflow-updates')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'vendor_documents' },
-        () => fetchWorkflowData()
-      )
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'vendor_applications' },
-        () => fetchWorkflowData()
-      )
-      .subscribe();
+    const interval = setInterval(fetchWorkflowData, 30000); // Poll every 30 seconds
 
     return () => {
-      supabase.removeChannel(channel);
+      clearInterval(interval);
     };
   }, []);
 

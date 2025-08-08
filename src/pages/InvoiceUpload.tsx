@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -6,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { getToken } from "@/utils/auth";
 
 const InvoiceUpload = () => {
   const navigate = useNavigate();
@@ -26,8 +25,8 @@ const InvoiceUpload = () => {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const token = getToken();
+      if (!token) {
         toast({
           title: "Error",
           description: "You must be logged in to upload an invoice",
@@ -36,39 +35,28 @@ const InvoiceUpload = () => {
         return;
       }
 
-      // Verify job exists
-      const { data: jobData } = await supabase
-        .from('job_descriptions')
-        .select('id')
-        .eq('id', formData.jobId)
-        .single();
-
-      if (!jobData) {
-        toast({
-          title: "Error",
-          description: "Invalid job ID",
-          variant: "destructive",
-        });
-        return;
+      const formDataToSend = new FormData();
+      formDataToSend.append('invoiceNumber', formData.invoiceNumber);
+      formDataToSend.append('jobId', formData.jobId);
+      formDataToSend.append('candidateName', formData.candidateName);
+      formDataToSend.append('amount', formData.amount);
+      
+      if (formData.invoice) {
+        formDataToSend.append('invoice', formData.invoice);
       }
 
-      // Insert invoice data using correct column names
-      const { data, error } = await supabase
-        .from('invoices')
-        .insert([
-          {
-            vendor_id: user.id,
-            invoice_number: formData.invoiceNumber,
-            job_id: formData.jobId,
-            candidate_name: formData.candidateName,
-            amount: parseFloat(formData.amount),
-            status: 'pending'
-          }
-        ])
-        .select()
-        .single();
+      const response = await fetch('/api/invoices/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formDataToSend,
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to upload invoice');
+      }
 
       toast({
         title: "Success",

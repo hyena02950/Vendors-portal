@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { Building2, Plus, Edit, Trash2, RefreshCw } from "lucide-react";
+import { getToken } from "@/utils/auth";
 
 interface Vendor {
   id: string;
@@ -51,21 +51,27 @@ export const VendorManagement = () => {
   const fetchVendors = async () => {
     try {
       setLoading(true);
-      const { data, error } = await (supabase as any)
-        .from('vendors')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching vendors:', error);
+      const response = await fetch('/api/vendors', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching vendors');
         toast({
           title: "Error",
-          description: `Failed to fetch vendors: ${error.message}`,
+          description: "Failed to fetch vendors",
           variant: "destructive",
         });
-      } else {
-        setVendors((data || []) as Vendor[]);
+        return;
       }
+
+      const data = await response.json();
+      setVendors(data.vendors || []);
     } catch (error) {
       console.error('Error fetching vendors:', error);
       toast({
@@ -91,18 +97,27 @@ export const VendorManagement = () => {
     setIsAddingVendor(true);
 
     try {
-      const { error } = await (supabase as any)
-        .from('vendors')
-        .insert({
-          name: formData.name,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          address: formData.address || null,
-          contact_person: formData.contact_person,
-        });
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (error) {
-        throw error;
+      const response = await fetch('/api/vendors', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          address: formData.address,
+          contact_person: formData.contact_person,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create vendor');
       }
 
       toast({
@@ -156,19 +171,27 @@ export const VendorManagement = () => {
     setIsEditingVendor(true);
 
     try {
-      const { error } = await (supabase as any)
-        .from('vendors')
-        .update({
-          name: formData.name,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          address: formData.address || null,
-          contact_person: formData.contact_person,
-        })
-        .eq('id', editingVendor.id);
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (error) {
-        throw error;
+      const response = await fetch(`/api/vendors/${editingVendor.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          address: formData.address,
+          contact_person: formData.contact_person,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update vendor');
       }
 
       toast({
@@ -204,13 +227,19 @@ export const VendorManagement = () => {
     }
 
     try {
-      const { error } = await (supabase as any)
-        .from('vendors')
-        .delete()
-        .eq('id', vendorId);
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (error) {
-        throw error;
+      const response = await fetch(`/api/vendors/${vendorId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete vendor');
       }
 
       toast({

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -8,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { getToken } from "@/utils/auth";
 
 const ScheduleInterview = () => {
   const [searchParams] = useSearchParams();
@@ -43,8 +42,8 @@ const ScheduleInterview = () => {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const token = getToken();
+      if (!token) {
         toast({
           title: "Error",
           description: "You must be logged in to schedule an interview",
@@ -53,27 +52,29 @@ const ScheduleInterview = () => {
         return;
       }
 
-      // Combine date and time for interview_date
-      const interviewDateTime = new Date(`${formData.interviewDate}T${formData.interviewTime}`).toISOString();
+      const interviewDateTime = `${formData.interviewDate}T${formData.interviewTime}`;
 
-      // Insert interview data - match the actual database schema
-      const { data, error } = await (supabase as any)
-        .from('interviews')
-        .insert([
-          {
-            vendor_id: user.id,
-            candidate_id: formData.candidateId || null,
-            interview_date: interviewDateTime,
-            interview_type: formData.interviewType,
-            interviewer: formData.interviewer,
-            status: 'scheduled',
-            feedback: formData.notes || null
-          }
-        ])
-        .select()
-        .single();
+      const response = await fetch('/api/interviews/schedule', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          candidateId: formData.candidateId,
+          jobId: formData.jobId,
+          interviewDate: interviewDateTime,
+          interviewType: formData.interviewType,
+          interviewer: formData.interviewer,
+          location: formData.location,
+          notes: formData.notes,
+        }),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to schedule interview');
+      }
 
       toast({
         title: "Success",

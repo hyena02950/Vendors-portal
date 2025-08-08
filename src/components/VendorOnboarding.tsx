@@ -6,13 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useVendorApplication } from "@/hooks/useVendorApplication";
 import { NewVendorRegistration } from "./NewVendorRegistration";
 import { VendorApplicationDashboard } from "./VendorApplicationDashboard";
 import { Upload, FileText, CheckCircle, XCircle, Clock, RefreshCw, Send } from "lucide-react";
+import { getToken } from "@/utils/auth";
 
 type DocumentTypeEnum = 'msa' | 'nda' | 'incorporation_certificate' | 'gst_certificate' | 'shop_act_license' | 'msme_registration';
 
@@ -84,17 +84,21 @@ export const VendorOnboarding = () => {
   const fetchVendorInfo = async (currentVendorId: string) => {
     try {
       console.log('Fetching vendor info for:', currentVendorId);
-      const { data, error } = await supabase
-        .from('vendors')
-        .select('id, name, status')
-        .eq('id', currentVendorId)
-        .single();
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching vendor info:', error);
-      } else {
+      const response = await fetch(`/api/vendors/${currentVendorId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
         console.log('Vendor info fetched:', data);
         setVendorInfo(data);
+      } else {
+        console.error('Error fetching vendor info');
       }
     } catch (error) {
       console.error('Error fetching vendor info:', error);
@@ -104,22 +108,28 @@ export const VendorOnboarding = () => {
   const fetchVendors = async () => {
     try {
       console.log('Fetching vendors...');
-      const { data, error } = await supabase
-        .from('vendors')
-        .select('id, name')
-        .order('name');
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching vendors:', error);
+      const response = await fetch('/api/vendors', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching vendors');
         toast({
           title: "Error",
-          description: "Failed to fetch vendors. Please try again.",
+          description: "Failed to fetch vendors",
           variant: "destructive",
         });
-      } else {
-        console.log('Vendors fetched:', data);
-        setVendors((data || []) as {id: string, name: string}[]);
+        return;
       }
+
+      const data = await response.json();
+      console.log('Vendors fetched successfully:', data);
+      setVendors(data.vendors || []);
     } catch (error) {
       console.error('Error fetching vendors:', error);
     }
@@ -131,23 +141,28 @@ export const VendorOnboarding = () => {
     setRefreshing(true);
     try {
       console.log('Fetching documents for vendor:', currentVendorId);
-      const { data, error } = await supabase
-        .from('vendor_documents')
-        .select('*')
-        .eq('vendor_id', currentVendorId)
-        .order('uploaded_at', { ascending: false });
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching documents:', error);
+      const response = await fetch(`/api/vendors/${currentVendorId}/documents`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching documents');
         toast({
           title: "Error",
-          description: "Failed to fetch documents. Please try again.",
+          description: "Failed to fetch documents",
           variant: "destructive",
         });
-      } else {
-        console.log('Documents fetched:', data);
-        setDocuments((data || []) as VendorDocument[]);
+        return;
       }
+
+      const data = await response.json();
+      console.log('Documents fetched:', data);
+      setDocuments(data.documents || []);
     } catch (error) {
       console.error('Error fetching documents:', error);
       toast({
@@ -161,10 +176,11 @@ export const VendorOnboarding = () => {
   };
 
   const handleFileUpload = async (documentType: string, file: File) => {
-    if (!user || !selectedVendor) {
+    const token = getToken();
+    if (!token || !selectedVendor) {
       toast({
         title: "Error",
-        description: "User or vendor information not available.",
+        description: "Authentication or vendor information not available.",
         variant: "destructive",
       });
       return;
@@ -197,56 +213,22 @@ export const VendorOnboarding = () => {
     try {
       console.log('Starting file upload for document type:', documentType);
       
-      // Upload to Supabase storage
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${documentType}_${Date.now()}.${fileExt}`;
-      const filePath = `${selectedVendor}/${fileName}`;
+      const formDataToSend = new FormData();
+      formDataToSend.append('documentType', documentType);
+      formDataToSend.append('document', file);
+      formDataToSend.append('vendorId', selectedVendor);
 
-      console.log('Uploading file to storage:', filePath);
-      
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('vendor-documents')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+      const response = await fetch('/api/vendors/documents/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formDataToSend,
+      });
 
-      if (uploadError) {
-        console.error('Storage upload error:', uploadError);
-        throw uploadError;
-      }
-
-      console.log('File uploaded successfully:', uploadData);
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('vendor-documents')
-        .getPublicUrl(filePath);
-
-      console.log('Public URL obtained:', publicUrl);
-
-      // Save document record to database
-      const documentData = {
-        document_type: documentType as DocumentTypeEnum,
-        file_name: file.name,
-        file_url: publicUrl,
-        file_size: file.size,
-        uploaded_by: user.id,
-        vendor_id: selectedVendor,
-        status: 'pending' as const
-      };
-
-      console.log('Saving document data to database:', documentData);
-
-      const { error: insertError } = await supabase
-        .from('vendor_documents')
-        .upsert(documentData, {
-          onConflict: 'vendor_id,document_type'
-        });
-
-      if (insertError) {
-        console.error('Database insert error:', insertError);
-        throw insertError;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to upload document');
       }
 
       toast({

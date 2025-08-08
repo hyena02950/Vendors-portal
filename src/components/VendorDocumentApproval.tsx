@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { CheckCircle, XCircle, Clock, FileText, Eye } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BulkDocumentActions } from "./BulkDocumentActions";
 import { DocumentVersionHistory } from "./DocumentVersionHistory";
 import { AutomatedReminders } from "./AutomatedReminders";
 import { WorkflowStatusManager } from "./WorkflowStatusManager";
+import { getToken } from "@/utils/auth";
 
 type DocumentType = 'msa' | 'nda' | 'incorporation_certificate' | 'gst_certificate' | 'shop_act_license' | 'msme_registration';
 
@@ -47,27 +47,28 @@ export const VendorDocumentApproval = () => {
   const fetchDocuments = async () => {
     try {
       console.log('Fetching all vendor documents for review...');
-      const { data, error } = await supabase
-        .from('vendor_documents')
-        .select(`
-          *,
-          vendors!inner (
-            name
-          )
-        `)
-        .order('uploaded_at', { ascending: false });
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching documents:', error);
+      const response = await fetch('/api/vendors/documents', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching documents');
         toast({
           title: "Error",
           description: "Failed to fetch documents for review",
           variant: "destructive",
         });
-      } else {
-        console.log('Documents fetched for review:', data);
-        setDocuments(data as any || []);
+        return;
       }
+
+      const data = await response.json();
+      console.log('Documents fetched for review:', data);
+      setDocuments(data.documents || []);
     } catch (error) {
       console.error('Error fetching documents:', error);
     } finally {
@@ -79,8 +80,8 @@ export const VendorDocumentApproval = () => {
     try {
       console.log('Reviewing document:', documentId, 'Status:', status);
       
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const token = getToken();
+      if (!token) {
         toast({
           title: "Error", 
           description: "You must be logged in to review documents",
@@ -89,19 +90,21 @@ export const VendorDocumentApproval = () => {
         return;
       }
 
-      const { error } = await supabase
-        .from('vendor_documents')
-        .update({
+      const response = await fetch(`/api/vendors/documents/${documentId}/review`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           status: status,
-          review_notes: notes || null,
-          reviewed_by: user.id,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', documentId);
+          reviewNotes: notes,
+        }),
+      });
 
-      if (error) {
-        console.error('Error updating document status:', error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to review document');
       }
 
       toast({

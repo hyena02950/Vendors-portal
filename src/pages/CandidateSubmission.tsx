@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -7,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { getToken } from "@/utils/auth";
 
 const CandidateSubmission = () => {
   const [searchParams] = useSearchParams();
@@ -40,8 +39,8 @@ const CandidateSubmission = () => {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const token = getToken();
+      if (!token) {
         toast({
           title: "Error",
           description: "You must be logged in to submit a candidate",
@@ -50,41 +49,33 @@ const CandidateSubmission = () => {
         return;
       }
 
-      // Verify job exists
-      const { data: jobData } = await supabase
-        .from('job_descriptions')
-        .select('id')
-        .eq('id', formData.jobId)
-        .single();
-
-      if (!jobData) {
-        toast({
-          title: "Error",
-          description: "Invalid job ID",
-          variant: "destructive",
-        });
-        return;
+      const formDataToSend = new FormData();
+      formDataToSend.append('jobId', formData.jobId);
+      formDataToSend.append('candidateName', formData.candidateName);
+      formDataToSend.append('email', formData.email);
+      formDataToSend.append('phone', formData.phone);
+      formDataToSend.append('linkedIn', formData.linkedIn);
+      formDataToSend.append('currentCTC', formData.currentCTC);
+      formDataToSend.append('expectedCTC', formData.expectedCTC);
+      formDataToSend.append('skills', formData.skills);
+      formDataToSend.append('experience', formData.experience);
+      
+      if (formData.resume) {
+        formDataToSend.append('resume', formData.resume);
       }
 
-      // Insert candidate data using correct column names
-      const { data, error } = await supabase
-        .from('candidates')
-        .insert([
-          {
-            vendor_id: user.id,
-            job_id: formData.jobId,
-            name: formData.candidateName,
-            email: formData.email,
-            phone: formData.phone,
-            experience_years: parseInt(formData.experience),
-            notice_period: "30 days", // Default value since it's required
-            status: 'submitted'
-          }
-        ])
-        .select()
-        .single();
+      const response = await fetch('/api/candidates/submit', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formDataToSend,
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to submit candidate');
+      }
 
       toast({
         title: "Success",

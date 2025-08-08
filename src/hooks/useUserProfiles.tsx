@@ -1,7 +1,7 @@
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "./useUserRole";
+import { getToken } from "@/utils/auth";
 
 export interface UserProfile {
   id: string;
@@ -36,29 +36,29 @@ export const useUserProfiles = () => {
       console.log("Fetching user profiles...");
       setError(null);
       
-      const { data, error: fetchError } = await supabase
-        .from('profiles')
-        .select(`
-          *,
-          user_roles (
-            role
-          )
-        `)
-        .order('created_at', { ascending: false });
+      const token = getToken();
+      if (!token) return;
 
-      if (fetchError) {
-        console.error('Error fetching profiles:', fetchError);
-        setError(fetchError.message);
+      const response = await fetch('/api/users/profiles', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setError(errorData.message || 'Failed to fetch profiles');
         return;
       }
 
+      const data = await response.json();
       console.log('User profiles fetched:', data);
       
       // Transform the data to match the expected structure
-      const normalizedProfiles = (data || []).map(profile => ({
+      const normalizedProfiles = (data.profiles || []).map(profile => ({
         ...profile,
         full_name: profile.contact_person || profile.email || 'Unknown',
-        user_roles: profile.user_roles || []
+        user_roles: profile.roles || []
       })) as UserProfile[];
       
       setProfiles(normalizedProfiles);
@@ -76,23 +76,10 @@ export const useUserProfiles = () => {
 
     if (isElikaAdmin) {
       // Set up real-time subscription for profile changes
-      const profileChannel = supabase
-        .channel('profiles-updates')
-        .on('postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'profiles'
-          },
-          (payload) => {
-            console.log('Profile change detected:', payload);
-            fetchProfiles();
-          }
-        )
-        .subscribe();
+      const interval = setInterval(fetchProfiles, 30000); // Poll every 30 seconds
 
       return () => {
-        supabase.removeChannel(profileChannel);
+        clearInterval(interval);
       };
     }
   }, [isElikaAdmin]);

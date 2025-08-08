@@ -17,10 +17,10 @@ import { useUserProfiles } from "@/hooks/useUserProfiles";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useToast } from "@/hooks/use-toast";
 import { RefreshCw, Trash2, Users, UserCog } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { UserProfileSkeleton } from "@/components/LoadingSkeletons";
+import { getToken } from "@/utils/auth";
 
 type AppRole = "vendor_admin" | "vendor_recruiter" | "elika_admin" | "delivery_head" | "finance_team";
 
@@ -38,19 +38,23 @@ const UserManagement = () => {
       // Fetch the current role of the selected user
       const fetchUserRole = async () => {
         try {
-          const { data, error } = await supabase
-            .from('user_roles')
-            .select('role')
-            .eq('user_id', selectedUser)
-            .single();
+          const token = getToken();
+          if (!token) return;
 
-          if (error) {
-            console.error("Error fetching user role:", error);
+          const response = await fetch(`/api/users/${selectedUser}/roles`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            console.error("Error fetching user role");
             return;
           }
 
-          if (data) {
-            setSelectedRole(data.role as AppRole);
+          const data = await response.json();
+          if (data.roles && data.roles.length > 0) {
+            setSelectedRole(data.roles[0].role as AppRole);
           } else {
             setSelectedRole(""); // No role assigned
           }
@@ -85,51 +89,36 @@ const UserManagement = () => {
         return;
       }
 
-      // Check if the user already has this role
-      const { data: existingRole, error: existingRoleError } = await supabase
-        .from('user_roles')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('role', roleValue)
-        .single();
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (existingRoleError && existingRoleError.code !== 'PGRST116') {
-        console.error("Error checking existing role:", existingRoleError);
+      const response = await fetch('/api/users/roles', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          role: roleValue,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
         toast({
           title: "Error",
-          description: `Failed to assign role: ${existingRoleError.message}`,
+          description: errorData.message || "Failed to assign role",
           variant: "destructive",
         });
         return;
       }
 
-      if (existingRole) {
-        toast({
-          title: "Info",
-          description: "User already has this role.",
-        });
-        return;
-      }
-
-      // Assign the role to the user
-      const { error } = await supabase
-        .from('user_roles')
-        .insert({ user_id: userId, role: roleValue });
-
-      if (error) {
-        console.error("Error assigning role:", error);
-        toast({
-          title: "Error",
-          description: `Failed to assign role: ${error.message}`,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: `Role assigned successfully!`,
-        });
-        refetch(); // Refresh user profiles
-      }
+      toast({
+        title: "Success",
+        description: "Role assigned successfully!",
+      });
+      refetch(); // Refresh user profiles
     } catch (error) {
       console.error("Error assigning role:", error);
       toast({
@@ -146,36 +135,19 @@ const UserManagement = () => {
     setIsAssigning(true);
     setDeleteError(null);
     try {
-      // Delete user roles first
-      const { error: deleteUserRolesError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', userId);
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (deleteUserRolesError) {
-        console.error("Error deleting user roles:", deleteUserRolesError);
-        setDeleteError(`Failed to delete user roles: ${deleteUserRolesError.message}`);
-        return;
-      }
+      const response = await fetch(`/api/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
 
-      // Then delete the user profile
-      const { error: deleteProfileError } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', userId);
-
-      if (deleteProfileError) {
-        console.error("Error deleting profile:", deleteProfileError);
-        setDeleteError(`Failed to delete user profile: ${deleteProfileError.message}`);
-        return;
-      }
-
-      // Finally, delete the user from auth.users
-      const { error: deleteAuthUserError } = await supabase.auth.admin.deleteUser(userId);
-
-      if (deleteAuthUserError) {
-        console.error("Error deleting auth user:", deleteAuthUserError);
-        setDeleteError(`Failed to delete user account: ${deleteAuthUserError.message}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        setDeleteError(errorData.message || 'Failed to delete user');
         return;
       }
 

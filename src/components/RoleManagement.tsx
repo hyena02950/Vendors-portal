@@ -7,9 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useUserRole, AppRole } from "@/hooks/useUserRole";
 import { UserPlus, Trash2, RefreshCw } from "lucide-react";
+import { getToken } from "@/utils/auth";
 
 interface RoleAssignment {
   id: string;
@@ -42,18 +42,24 @@ export const RoleManagement = () => {
     try {
       console.log("Fetching user profiles for role management...");
       
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, contact_person, email');
+      const token = getToken();
+      if (!token) return {};
 
-      if (error) {
-        console.error('Error fetching user profiles:', error);
+      const response = await fetch('/api/users/profiles', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching user profiles');
         return {};
       }
 
+      const data = await response.json();
       console.log("User profiles fetched for role management:", data);
       const profileMap: {[key: string]: string} = {};
-      data?.forEach((profile: any) => {
+      data.profiles?.forEach((profile: any) => {
         profileMap[profile.id] = profile.contact_person || profile.email || 'Unknown';
       });
       
@@ -68,18 +74,21 @@ export const RoleManagement = () => {
   const getUserIdFromEmail = async (email: string): Promise<string> => {
     console.log('Looking up user ID for email:', email);
     
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .or(`contact_person.eq.${email},email.eq.${email}`)
-      .single();
+    const token = getToken();
+    if (!token) throw new Error('Authentication required');
 
-    if (profileData && !profileError) {
-      console.log('Found user via profile:', profileData.id);
-      return profileData.id;
+    const response = await fetch(`/api/users/lookup?email=${encodeURIComponent(email)}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('Found user via lookup:', data.userId);
+      return data.userId;
     }
 
-    console.log('Profile lookup failed:', profileError);
     throw new Error(`User with email ${email} not found. Please make sure the user has signed up first.`);
   };
 
@@ -87,56 +96,34 @@ export const RoleManagement = () => {
     try {
       console.log("Fetching all user roles for role management...");
       
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching roles:', error);
+      const response = await fetch('/api/users/roles', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching roles');
         toast({
           title: "Error",
-          description: `Failed to fetch roles: ${error.message}`,
+          description: "Failed to fetch roles",
           variant: "destructive",
         });
         return;
       }
 
+      const data = await response.json();
       console.log("Roles fetched successfully:", data);
       
-      if (!data || data.length === 0) {
+      if (!data.roles || data.roles.length === 0) {
         setRoles([]);
         return;
       }
 
-      // Get unique vendor IDs from roles
-      const vendorIds = [...new Set(data.filter((role: any) => role.vendor_id).map((role: any) => role.vendor_id))];
-      console.log("Vendor IDs to fetch for role management:", vendorIds);
-      
-      let vendorMap: { [key: string]: string } = {};
-      if (vendorIds.length > 0) {
-        const { data: vendorData, error: vendorError } = await supabase
-          .from('vendors')
-          .select('id, name')
-          .in('id', vendorIds);
-        
-        if (vendorError) {
-          console.error('Error fetching vendor names:', vendorError);
-        } else if (vendorData) {
-          vendorMap = (vendorData as Vendor[]).reduce((acc: any, vendor: any) => {
-            acc[vendor.id] = vendor.name;
-            return acc;
-          }, {} as { [key: string]: string });
-          console.log("Vendor map created for role management:", vendorMap);
-        }
-      }
-
-      const enrichedRoles = data.map((role: any) => ({
-        ...role,
-        vendor_name: role.vendor_id ? vendorMap[role.vendor_id] || 'Unknown Vendor' : undefined
-      }));
-      
-      setRoles(enrichedRoles as RoleAssignment[]);
+      setRoles(data.roles as RoleAssignment[]);
     } catch (error) {
       console.error('Unexpected error fetching roles:', error);
       toast({
@@ -151,23 +138,28 @@ export const RoleManagement = () => {
     try {
       console.log("Fetching vendors for role management...");
       
-      const { data, error } = await supabase
-        .from('vendors')
-        .select('id, name')
-        .order('name');
+      const token = getToken();
+      if (!token) return;
 
-      if (error) {
-        console.error('Error fetching vendors for role management:', error);
+      const response = await fetch('/api/vendors', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error('Error fetching vendors');
         toast({
           title: "Error",
-          description: `Failed to fetch vendors: ${error.message}`,
+          description: "Failed to fetch vendors",
           variant: "destructive",
         });
         return;
       }
 
-      console.log("Vendors fetched successfully for role management:", data);
-      setVendors((data || []) as Vendor[]);
+      const data = await response.json();
+      console.log("Vendors fetched successfully:", data);
+      setVendors(data.vendors || []);
     } catch (error) {
       console.error('Unexpected error fetching vendors:', error);
       toast({
@@ -253,18 +245,25 @@ export const RoleManagement = () => {
       // Get user ID from email
       const userId = await getUserIdFromEmail(newUserEmail);
 
-      const roleData = {
-        user_id: userId,
-        role: selectedRole as AppRole,
-        vendor_id: selectedRole.startsWith('vendor') ? selectedVendor : null,
-      };
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      const { error } = await supabase
-        .from('user_roles')
-        .insert(roleData);
+      const response = await fetch('/api/users/roles', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+          role: selectedRole,
+          vendorId: selectedRole.startsWith('vendor') ? selectedVendor : null,
+        }),
+      });
 
-      if (error) {
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to assign role');
       }
 
       toast({
@@ -296,13 +295,19 @@ export const RoleManagement = () => {
     }
 
     try {
-      const { error } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('id', roleId);
+      const token = getToken();
+      if (!token) throw new Error('Authentication required');
 
-      if (error) {
-        throw error;
+      const response = await fetch(`/api/users/roles/${roleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to remove role');
       }
 
       toast({

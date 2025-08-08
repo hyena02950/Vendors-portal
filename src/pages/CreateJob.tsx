@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { getToken } from "@/utils/auth";
 
 const CreateJob = () => {
   const navigate = useNavigate();
@@ -50,8 +50,8 @@ const CreateJob = () => {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const token = getToken();
+      if (!token) {
         toast({
           title: "Error",
           description: "You must be logged in to create a job",
@@ -60,31 +60,28 @@ const CreateJob = () => {
         return;
       }
 
-      // Generate a job_id
-      const jobId = `JOB-${Date.now()}`;
+      const response = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: formData.title,
+          department: formData.department,
+          location: formData.location,
+          salaryRange: formData.salaryRange,
+          skillsRequired: formData.skills,
+          description: formData.description,
+          requirements: formData.requirements,
+          experienceRequired: formData.experienceRequired,
+        }),
+      });
 
-      // Insert job data using correct column names
-      const { data, error } = await supabase
-        .from('job_descriptions')
-        .insert([
-          {
-            job_id: jobId,
-            title: formData.title,
-            department: formData.department,
-            location: formData.location,
-            salary_range: formData.salaryRange,
-            skills_required: formData.skills,
-            description: formData.description,
-            requirements: formData.requirements,
-            experience_required: formData.experienceRequired,
-            status: 'active',
-            assigned_vendors: [user.id]
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create job');
+      }
 
       toast({
         title: "Success",
