@@ -1,3 +1,4 @@
+
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
@@ -25,8 +26,18 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
-    req.user = user;
+    // Ensure req.user has all necessary fields
+    req.user = {
+      id: user._id.toString(),
+      _id: user._id,
+      email: user.email,
+      roles: user.roles,
+      profile: user.profile,
+      isActive: user.isActive
+    };
     req.userRoles = user.roles;
+    
+    console.log('Auth middleware - req.user.id:', req.user.id);
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);

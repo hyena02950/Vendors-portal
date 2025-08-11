@@ -38,9 +38,11 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log('Starting vendor registration...', { user, formData });
+    
     const token = getToken();
     if (!user || !token) {
-      console.error('No authenticated user or session found');
+      console.error('No authenticated user or session found', { user: !!user, token: !!token });
       toast({
         title: "Authentication Error",
         description: "You must be logged in to register a vendor.",
@@ -50,6 +52,7 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
     }
 
     if (!formData.name || !formData.email || !formData.contact_person) {
+      console.error('Validation failed', formData);
       toast({
         title: "Validation Error",
         description: "Please fill in all required fields.",
@@ -61,6 +64,14 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
     setLoading(true);
 
     try {
+      console.log('Making API request to /api/vendors with:', {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        contactPerson: formData.contact_person,
+      });
+
       const response = await fetch('/api/vendors', {
         method: 'POST',
         headers: {
@@ -76,8 +87,12 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
         }),
       });
 
+      console.log('API response status:', response.status);
+      console.log('API response headers:', Object.fromEntries(response.headers.entries()));
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('API error response:', errorData);
         throw new Error(errorData.message || 'Failed to create vendor');
       }
 
@@ -88,6 +103,7 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
         title: "Vendor Registered",
         description: "Your vendor profile has been created successfully and is pending approval.",
       });
+      
       // Reset form
       setFormData({
         name: "",
@@ -97,7 +113,13 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
         contact_person: "",
       });
 
-      onVendorCreated(data.vendor.id);
+      if (data.data && data.data.id) {
+        onVendorCreated(data.data.id);
+      } else if (data.vendor && data.vendor.id) {
+        onVendorCreated(data.vendor.id);
+      } else {
+        console.error('Unexpected response structure:', data);
+      }
     } catch (error: any) {
       console.error('Error in vendor registration process:', error);
       toast({

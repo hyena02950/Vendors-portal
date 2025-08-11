@@ -1,92 +1,103 @@
+
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
 const Invoice = require('../models/Invoice');
 const { authenticateToken, requireVendorAccess, requireRole } = require('../middleware/auth');
+const fileUploadService = require('../services/fileUploadService');
+const AppError = require('../utils/AppError');
 
 const router = express.Router();
 
-// Configure multer for invoice uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads/invoices'));
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are allowed for invoices.'));
-    }
-  }
-});
-
 // Upload invoice
-router.post('/upload', authenticateToken, requireVendorAccess, upload.single('invoice'), async (req, res) => {
-  try {
-    const {
-      invoiceNumber,
-      jobId,
-      candidateName,
-      amount
-    } = req.body;
+router.post('/upload', 
+  authenticateToken, 
+  requireVendorAccess, 
+  fileUploadService.getUploadMiddleware('invoices'),
+  fileUploadService.upload.single('invoice'), 
+  async (req, res) => {
+    try {
+      const {
+        invoiceNumber,
+        jobId,
+        candidateName,
+        amount
+      } = req.body;
 
-    if (!invoiceNumber || !jobId || !candidateName || !amount) {
-      return res.status(400).json({
+      if (!invoiceNumber || !jobId || !candidateName || !amount) {
+        // Clean up uploaded file if validation fails
+        if (req.file) {
+          await fileUploadService.deleteFile(req.file.path || '');
+        }
+        return res.status(400).json({
+          error: true,
+          message: 'Missing required fields',
+          code: 'MISSING_FIELDS'
+        });
+      }
+
+      // Check if invoice number already exists
+      const existingInvoice = await Invoice.findOne({ invoiceNumber });
+      if (existingInvoice) {
+        // Clean up uploaded file if invoice exists
+        if (req.file) {
+          await fileUploadService.deleteFile(req.file.path || '');
+        }
+        return res.status(400).json({
+          error: true,
+          message: 'Invoice number already exists',
+          code: 'INVOICE_EXISTS'
+        });
+      }
+
+      let invoiceUrl = null;
+
+      // Process uploaded invoice file
+      if (req.file) {
+        try {
+          invoiceUrl = await fileUploadService.processUploadedFile(req.file, 'invoices');
+          console.log('Invoice file uploaded successfully:', invoiceUrl);
+        } catch (error) {
+          console.error('Error processing invoice upload:', error);
+          throw new AppError('Failed to upload invoice file', 500, 'INVOICE_UPLOAD_ERROR');
+        }
+      }
+
+      const invoice = new Invoice({
+        invoiceNumber,
+        vendorId: req.vendorId,
+        jobId,
+        candidateName,
+        amount: parseFloat(amount),
+        invoiceUrl,
+        uploadedBy: req.user._id
+      });
+
+      await invoice.save();
+
+      res.status(201).json({
+        message: 'Invoice uploaded successfully',
+        invoiceId: invoice.invoiceNumber,
+        status: 'pending_approval'
+      });
+    } catch (error) {
+      console.error('Error uploading invoice:', error);
+      
+      // Clean up uploaded file on error
+      if (req.file) {
+        try {
+          await fileUploadService.deleteFile(req.file.path || '');
+        } catch (cleanupError) {
+          console.error('Error cleaning up file:', cleanupError);
+        }
+      }
+
+      res.status(500).json({
         error: true,
-        message: 'Missing required fields',
-        code: 'MISSING_FIELDS'
+        message: 'Failed to upload invoice',
+        code: 'UPLOAD_INVOICE_ERROR'
       });
     }
-
-    // Check if invoice number already exists
-    const existingInvoice = await Invoice.findOne({ invoiceNumber });
-    if (existingInvoice) {
-      return res.status(400).json({
-        error: true,
-        message: 'Invoice number already exists',
-        code: 'INVOICE_EXISTS'
-      });
-    }
-
-    const invoiceUrl = req.file ? `/uploads/invoices/${req.file.filename}` : null;
-
-    const invoice = new Invoice({
-      invoiceNumber,
-      vendorId: req.vendorId,
-      jobId,
-      candidateName,
-      amount: parseFloat(amount),
-      invoiceUrl,
-      uploadedBy: req.user._id
-    });
-
-    await invoice.save();
-
-    res.status(201).json({
-      message: 'Invoice uploaded successfully',
-      invoiceId: invoice.invoiceNumber,
-      status: 'pending_approval'
-    });
-  } catch (error) {
-    console.error('Error uploading invoice:', error);
-    res.status(500).json({
-      error: true,
-      message: 'Failed to upload invoice',
-      code: 'UPLOAD_INVOICE_ERROR'
-    });
   }
-});
+);
 
 // Get vendor's invoices
 router.get('/my-invoices', authenticateToken, requireVendorAccess, async (req, res) => {
@@ -106,16 +117,28 @@ router.get('/my-invoices', authenticateToken, requireVendorAccess, async (req, r
 
     const totalCount = await Invoice.countDocuments(query);
 
-    const invoicesData = invoices.map(invoice => ({
-      id: invoice._id,
-      invoiceNumber: invoice.invoiceNumber,
-      jobId: invoice.jobId,
-      candidateName: invoice.candidateName,
-      amount: invoice.amount,
-      status: invoice.status,
-      uploadedDate: invoice.createdAt.toLocaleDateString(),
-      approvedDate: invoice.approvedAt ? invoice.approvedAt.toLocaleDateString() : null,
-      paidDate: invoice.paidAt ? invoice.paidAt.toLocaleDateString() : null
+    const invoicesData = await Promise.all(invoices.map(async (invoice) => {
+      let invoiceAccessUrl = null;
+      if (invoice.invoiceUrl) {
+        try {
+          invoiceAccessUrl = await fileUploadService.getFileAccessUrl(invoice.invoiceUrl);
+        } catch (error) {
+          console.error('Error generating invoice access URL:', error);
+        }
+      }
+
+      return {
+        id: invoice._id,
+        invoiceNumber: invoice.invoiceNumber,
+        jobId: invoice.jobId,
+        candidateName: invoice.candidateName,
+        amount: invoice.amount,
+        status: invoice.status,
+        uploadedDate: invoice.createdAt.toLocaleDateString(),
+        approvedDate: invoice.approvedAt ? invoice.approvedAt.toLocaleDateString() : null,
+        paidDate: invoice.paidAt ? invoice.paidAt.toLocaleDateString() : null,
+        invoiceUrl: invoiceAccessUrl
+      };
     }));
 
     res.json({

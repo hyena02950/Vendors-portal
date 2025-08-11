@@ -50,6 +50,55 @@ const Dashboard = () => {
     isPositive: value >= 0
   });
 
+  // Different tabs for different user types
+  const getTabsList = () => {
+    if (isElikaUser) {
+      return (
+        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
+          <TabsTrigger value="jobs" className="text-xs lg:text-sm">
+            Job Descriptions
+          </TabsTrigger>
+          <TabsTrigger value="candidates" className="text-xs lg:text-sm">
+            Candidates
+          </TabsTrigger>
+          <TabsTrigger value="interviews" className="text-xs lg:text-sm">
+            Interviews
+          </TabsTrigger>
+          <TabsTrigger value="invoices" className="text-xs lg:text-sm">
+            Invoices
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="text-xs lg:text-sm">
+            <TrendingUp className="w-4 h-4 lg:mr-2" />
+            <span className="hidden lg:inline">Analytics</span>
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="text-xs lg:text-sm">
+            Settings
+          </TabsTrigger>
+        </TabsList>
+      );
+    } else {
+      return (
+        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5">
+          <TabsTrigger value="jobs" className="text-xs lg:text-sm">
+            Job Descriptions
+          </TabsTrigger>
+          <TabsTrigger value="candidates" className="text-xs lg:text-sm">
+            Candidates
+          </TabsTrigger>
+          <TabsTrigger value="interviews" className="text-xs lg:text-sm">
+            Interviews
+          </TabsTrigger>
+          <TabsTrigger value="invoices" className="text-xs lg:text-sm">
+            Invoices
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="text-xs lg:text-sm">
+            Settings
+          </TabsTrigger>
+        </TabsList>
+      );
+    }
+  };
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen flex flex-col">
@@ -59,7 +108,9 @@ const Dashboard = () => {
           <main className="flex-1 overflow-auto">
             <div className="container mx-auto py-8 px-4 lg:px-8">
               <div className="mb-8">
-                <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+                <h1 className="text-3xl font-bold tracking-tight">
+                  {isElikaUser ? 'Admin Dashboard' : 'Vendor Dashboard'}
+                </h1>
                 <p className="text-muted-foreground mt-2">
                   {isVendorUser 
                     ? "Manage your recruitment activities and track performance." 
@@ -85,8 +136,8 @@ const Dashboard = () => {
                   trend={formatTrend(stats.jobsTrend)}
                 />
                 <StatsCard
-                  title="Total Candidates"
-                  value={stats.totalCandidates}
+                  title={isVendorUser ? "Total Submissions" : "Total Candidates"}
+                  value={isVendorUser ? stats.totalSubmissions : stats.totalCandidates}
                   icon={Users}
                   trend={formatTrend(stats.candidatesTrend)}
                 />
@@ -97,8 +148,8 @@ const Dashboard = () => {
                   trend={formatTrend(stats.interviewsTrend)}
                 />
                 <StatsCard
-                  title={isVendorUser ? "Total Invoices" : "Pending Approvals"}
-                  value={isVendorUser ? stats.totalInvoices : stats.pendingApprovals}
+                  title={isVendorUser ? "Pending Invoices" : "Pending Approvals"}
+                  value={isVendorUser ? stats.pendingInvoices : stats.pendingApprovals}
                   icon={Receipt}
                   trend={formatTrend(stats.invoicesTrend)}
                 />
@@ -106,27 +157,7 @@ const Dashboard = () => {
 
               {/* Main Content Tabs */}
               <Tabs defaultValue={isVendorUser ? "jobs" : "candidates"} className="space-y-4">
-                <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
-                  <TabsTrigger value="jobs" className="text-xs lg:text-sm">
-                    Job Descriptions
-                  </TabsTrigger>
-                  <TabsTrigger value="candidates" className="text-xs lg:text-sm">
-                    Candidates
-                  </TabsTrigger>
-                  <TabsTrigger value="interviews" className="text-xs lg:text-sm">
-                    Interviews
-                  </TabsTrigger>
-                  <TabsTrigger value="invoices" className="text-xs lg:text-sm">
-                    Invoices
-                  </TabsTrigger>
-                  <TabsTrigger value="analytics" className="text-xs lg:text-sm">
-                    <TrendingUp className="w-4 h-4 lg:mr-2" />
-                    <span className="hidden lg:inline">Analytics</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="settings" className="text-xs lg:text-sm">
-                    Settings
-                  </TabsTrigger>
-                </TabsList>
+                {getTabsList()}
 
                 <div className="mt-6">
                   <TabsContent value="jobs" className="space-y-4">
@@ -145,9 +176,11 @@ const Dashboard = () => {
                     <InvoicesTab />
                   </TabsContent>
 
-                  <TabsContent value="analytics" className="space-y-4">
-                    <AnalyticsTab />
-                  </TabsContent>
+                  {isElikaUser && (
+                    <TabsContent value="analytics" className="space-y-4">
+                      <AnalyticsTab />
+                    </TabsContent>
+                  )}
 
                   <TabsContent value="settings" className="space-y-4">
                     <ProfileSettingsTab />

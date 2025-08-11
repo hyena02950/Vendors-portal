@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -24,7 +25,8 @@ const userSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Vendor',
       required: function() {
-        return ['vendor_admin', 'vendor_recruiter'].includes(this.role);
+        // Fix: Check the parent role property, not this.role
+        return this.parent().roles && ['vendor_admin', 'vendor_recruiter'].includes(this.role);
       }
     }
   }],

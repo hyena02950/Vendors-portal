@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useAuth } from "./useAuth";
 
@@ -23,9 +24,26 @@ export const useUserRole = () => {
     }
 
     // Extract roles from user data
-    const userRoles = user.roles?.map(role => ({ role })) || [];
-    setRoles(userRoles);
-    setVendorId(user.vendorId || null);
+    const normalizedRoles = (user.roles as any[] | undefined)?.map((r: any) => {
+      if (typeof r === 'string') {
+        return { role: r as AppRole };
+      } else if (r && typeof r === 'object') {
+        return {
+          role: r.role as AppRole,
+          vendorId: r.vendorId
+        };
+      }
+      return null;
+    }).filter(Boolean) as UserRoleData[] || [];
+
+    setRoles(normalizedRoles);
+
+    // Set vendorId from the first vendor role found
+    const vendorRole = normalizedRoles.find(r => 
+      ['vendor_admin', 'vendor_recruiter'].includes(r.role)
+    );
+    setVendorId(vendorRole?.vendorId || null);
+    
     setLoading(false);
   }, [user]);
 

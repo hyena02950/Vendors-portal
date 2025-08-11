@@ -23,7 +23,7 @@ import { toast } from "sonner";
 
 export const Sidebar = () => {
   const { signOut, user } = useAuth();
-  const { isElikaAdmin, isDeliveryHead, isVendorAdmin, isVendorUser, isElikaUser, loading } = useUserRole();
+  const { isElikaAdmin, isDeliveryHead, isVendorAdmin, isVendorUser, isElikaUser, loading, vendorId } = useUserRole();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -42,50 +42,112 @@ export const Sidebar = () => {
     </div>;
   }
 
-  const navigationItems = [
-    {
-      name: "Dashboard",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      current: location.pathname === "/dashboard"
-    },
-    {
-      name: "Job Descriptions",
-      href: "/dashboard?tab=jobs",
-      icon: FileText,
-      current: location.pathname === "/dashboard" && location.search.includes("tab=jobs")
-    },
-    {
-      name: "Candidates",
-      href: "/dashboard?tab=candidates",
-      icon: Users,
-      current: location.pathname === "/dashboard" && location.search.includes("tab=candidates")
-    },
-    {
-      name: "Interviews",
-      href: "/dashboard?tab=interviews",
-      icon: Calendar,
-      current: location.pathname === "/dashboard" && location.search.includes("tab=interviews")
-    },
-    {
-      name: "Invoices",
-      href: "/dashboard?tab=invoices",
-      icon: Receipt,
-      current: location.pathname === "/dashboard" && location.search.includes("tab=invoices")
-    },
-    {
-      name: "Analytics",
-      href: "/dashboard?tab=analytics",
-      icon: BarChart3,
-      current: location.pathname === "/dashboard" && location.search.includes("tab=analytics")
-    },
-    {
-      name: "Profile Settings",
-      href: "/dashboard?tab=profile",
-      icon: Settings,
-      current: location.pathname === "/dashboard" && location.search.includes("tab=profile")
+  // Different navigation for different user types
+  const getNavigationItems = () => {
+    if (isElikaUser) {
+      return [
+        {
+          name: "Dashboard",
+          href: "/dashboard",
+          icon: LayoutDashboard,
+          current: location.pathname === "/dashboard"
+        },
+        {
+          name: "Job Descriptions",
+          href: "/dashboard",
+          icon: FileText,
+          current: false
+        },
+        {
+          name: "Candidates",
+          href: "/dashboard",
+          icon: Users,
+          current: false
+        },
+        {
+          name: "Interviews",
+          href: "/dashboard",
+          icon: Calendar,
+          current: false
+        },
+        {
+          name: "Invoices",
+          href: "/dashboard",
+          icon: Receipt,
+          current: false
+        },
+        {
+          name: "Analytics",
+          href: "/dashboard",
+          icon: BarChart3,
+          current: false
+        },
+        {
+          name: "Profile Settings",
+          href: "/dashboard",
+          icon: Settings,
+          current: false
+        }
+      ];
+    } else {
+      // Vendor users - limited navigation with vendor onboarding
+      const items = [
+        {
+          name: "Dashboard",
+          href: "/dashboard",
+          icon: LayoutDashboard,
+          current: location.pathname === "/dashboard"
+        }
+      ];
+
+      // Show vendor onboarding for vendor users
+      if (isVendorUser) {
+        items.push({
+          name: "Vendor Onboarding",
+          href: "/vendor-onboarding",
+          icon: Building,
+          current: location.pathname === "/vendor-onboarding"
+        });
+      }
+
+      items.push(
+        {
+          name: "Job Descriptions",
+          href: "/dashboard",
+          icon: FileText,
+          current: false
+        },
+        {
+          name: "Candidates",
+          href: "/dashboard",
+          icon: Users,
+          current: false
+        },
+        {
+          name: "Interviews",
+          href: "/dashboard",
+          icon: Calendar,
+          current: false
+        },
+        {
+          name: "Invoices",
+          href: "/dashboard",
+          icon: Receipt,
+          current: false
+        },
+        {
+          name: "Profile Settings",
+          href: "/dashboard",
+          icon: Settings,
+          current: false
+        }
+      );
+
+      return items;
     }
-  ];
+  };
+
+  const navigationItems = getNavigationItems();
 
   const quickActions = [
     {
@@ -110,14 +172,7 @@ export const Sidebar = () => {
       href: "/admin",
       icon: Shield,
       current: location.pathname === "/admin",
-      show: isElikaUser // Only show to Elika users (admin, delivery head, finance team)
-    },
-    {
-      name: "Vendor Onboarding",
-      href: "/vendor-onboarding",
-      icon: Building,
-      current: location.pathname === "/vendor-onboarding",
-      show: isVendorUser // Only show to vendor users
+      show: isElikaUser
     }
   ];
 
@@ -214,7 +269,9 @@ export const Sidebar = () => {
         <div className="px-3 mt-6 pt-4 border-t border-border">
           <div className="flex items-center space-x-3 px-3 py-2">
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-foreground truncate">User</div>
+              <div className="text-sm font-medium text-foreground truncate">
+                {isElikaUser ? 'Elika User' : 'Vendor User'}
+              </div>
               <div className="text-xs text-muted-foreground truncate">{user?.email}</div>
             </div>
           </div>

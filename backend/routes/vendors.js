@@ -1,96 +1,73 @@
+
 const express = require('express');
+const mongoose = require('mongoose');
 const Vendor = require('../models/Vendor');
 const User = require('../models/User');
-const { authenticateToken, requireRole } = require('../middleware/auth');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const auth = require('../middleware/auth');
+const asyncHandler = require('../utils/asyncHandler');
+const AppError = require('../utils/AppError');
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../../uploads/vendor-documents');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+// Helper function to validate ObjectId
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(id) && /^[0-9a-fA-F]{24}$/.test(id);
+};
 
-const upload = multer({ storage });
-
-// Create new vendor
-router.post('/', authenticateToken, async (req, res) => {
+// GET /api/vendors/workflow-status - Get workflow status counts
+router.get('/workflow-status', auth.authenticateToken, asyncHandler(async (req, res) => {
+  console.log('Fetching workflow status counts');
+  
   try {
-    const { name, email, phone, address, contactPerson } = req.body;
-
-    if (!name || !email || !contactPerson) {
-      return res.status(400).json({
-        error: true,
-        message: 'Name, email, and contact person are required',
-        code: 'MISSING_FIELDS'
-      });
-    }
-
-    const existingVendor = await Vendor.findOne({ email });
-    if (existingVendor) {
-      return res.status(400).json({
-        error: true,
-        message: 'Vendor with this email already exists',
-        code: 'VENDOR_EXISTS'
-      });
-    }
-
-    const vendor = new Vendor({
-      name,
-      email,
-      phone,
-      address,
-      contactPerson,
-      createdBy: req.user._id
-    });
-
-    await vendor.save();
-
-    req.user.roles.push({
-      role: 'vendor_admin',
-      vendorId: vendor._id
-    });
-    await req.user.save();
-
-    res.status(201).json({
-      message: 'Vendor created successfully',
-      vendor: {
-        id: vendor._id,
-        name: vendor.name,
-        email: vendor.email,
-        status: vendor.status
+    const counts = await Vendor.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    const statusCounts = {
+      pending: 0,
+      active: 0,
+      inactive: 0,
+      rejected: 0
+    };
+    
+    counts.forEach(item => {
+      if (statusCounts.hasOwnProperty(item._id)) {
+        statusCounts[item._id] = item.count;
       }
     });
+    
+    res.json({
+      success: true,
+      data: statusCounts
+    });
   } catch (error) {
-    console.error('Error creating vendor:', error);
+    console.error('Error fetching workflow status:', error);
     res.status(500).json({
       error: true,
-      message: 'Failed to create vendor',
-      code: 'CREATE_VENDOR_ERROR'
+      message: 'Failed to fetch workflow status',
+      code: 'WORKFLOW_STATUS_ERROR'
     });
   }
-});
+}));
 
-// Get all vendors (admin only)
-router.get('/', authenticateToken, requireRole(['elika_admin', 'delivery_head']), async (req, res) => {
+// GET /api/vendors - Get all vendors
+router.get('/', auth.authenticateToken, asyncHandler(async (req, res) => {
+  console.log('Fetching all vendors');
+  
   try {
     const vendors = await Vendor.find()
-      .populate('createdBy', 'email')
+      .populate('createdBy', 'email profile')
       .sort({ createdAt: -1 });
-
-    res.json({ vendors });
+    
+    res.json({
+      success: true,
+      data: vendors
+    });
   } catch (error) {
     console.error('Error fetching vendors:', error);
     res.status(500).json({
@@ -99,54 +76,25 @@ router.get('/', authenticateToken, requireRole(['elika_admin', 'delivery_head'])
       code: 'FETCH_VENDORS_ERROR'
     });
   }
-});
+}));
 
-// Get vendor by ID
-router.get('/:id', authenticateToken, async (req, res) => {
-  try {
-    const vendor = await Vendor.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('documents.reviewedBy', 'name email');
-
-    if (!vendor) {
-      return res.status(404).json({
-        error: true,
-        message: 'Vendor not found',
-        code: 'VENDOR_NOT_FOUND'
-      });
-    }
-
-    res.json({ vendor });
-  } catch (error) {
-    console.error('Error fetching vendor:', error);
-    res.status(500).json({
+// GET /api/vendors/:id/application - Get vendor application
+router.get('/:id/application', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Fetching application for vendor:', id);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
       error: true,
-      message: 'Failed to fetch vendor',
-      code: 'FETCH_VENDOR_ERROR'
+      message: 'Invalid vendor ID format',
+      code: 'INVALID_ID_FORMAT'
     });
   }
-});
-
-// Update vendor status (admin only)
-router.patch('/:id/status', authenticateToken, requireRole(['elika_admin']), async (req, res) => {
+  
   try {
-    const { status } = req.body;
-    const vendorId = req.params.id;
-
-    if (!['pending', 'active', 'inactive', 'rejected'].includes(status)) {
-      return res.status(400).json({
-        error: true,
-        message: 'Invalid status',
-        code: 'INVALID_STATUS'
-      });
-    }
-
-    const vendor = await Vendor.findByIdAndUpdate(
-      vendorId,
-      { status, updatedAt: new Date() },
-      { new: true }
-    );
-
+    const vendor = await Vendor.findById(id);
+    
     if (!vendor) {
       return res.status(404).json({
         error: true,
@@ -154,26 +102,48 @@ router.patch('/:id/status', authenticateToken, requireRole(['elika_admin']), asy
         code: 'VENDOR_NOT_FOUND'
       });
     }
-
-    res.json({ message: `Vendor status updated to ${status}` });
+    
+    res.json({
+      success: true,
+      application: {
+        id: vendor._id,
+        vendor_id: vendor._id,
+        status: vendor.application?.status || 'draft',
+        submitted_at: vendor.application?.submittedAt || null,
+        reviewed_at: vendor.application?.reviewedAt || null,
+        reviewed_by: vendor.application?.reviewedBy || null,
+        review_notes: vendor.application?.reviewNotes || null,
+        created_at: vendor.createdAt,
+        updated_at: vendor.updatedAt
+      }
+    });
   } catch (error) {
-    console.error('Error updating vendor status:', error);
+    console.error('Error fetching vendor application:', error);
     res.status(500).json({
       error: true,
-      message: 'Failed to update vendor status',
-      code: 'UPDATE_VENDOR_ERROR'
+      message: 'Failed to fetch vendor application',
+      code: 'FETCH_APPLICATION_ERROR'
     });
   }
-});
+}));
 
-// Document Management Endpoints
-router.get('/:vendorId/documents', authenticateToken, async (req, res) => {
+// POST /api/vendors/:id/application/submit - Submit vendor application
+router.post('/:id/application/submit', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Submitting application for vendor:', id);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
+      error: true,
+      message: 'Invalid vendor ID format',
+      code: 'INVALID_ID_FORMAT'
+    });
+  }
+  
   try {
-    const { type } = req.query;
-    const vendor = await Vendor.findById(req.params.vendorId)
-      .select('documents')
-      .populate('documents.reviewedBy', 'name email');
-
+    const vendor = await Vendor.findById(id);
+    
     if (!vendor) {
       return res.status(404).json({
         error: true,
@@ -181,17 +151,121 @@ router.get('/:vendorId/documents', authenticateToken, async (req, res) => {
         code: 'VENDOR_NOT_FOUND'
       });
     }
+    
+    // Update application status
+    vendor.application = {
+      ...vendor.application,
+      status: 'submitted',
+      submittedAt: new Date()
+    };
+    
+    await vendor.save();
+    
+    res.json({
+      success: true,
+      message: 'Application submitted successfully',
+      application: {
+        id: vendor._id,
+        vendor_id: vendor._id,
+        status: vendor.application.status,
+        submitted_at: vendor.application.submittedAt,
+        reviewed_at: vendor.application.reviewedAt,
+        reviewed_by: vendor.application.reviewedBy,
+        review_notes: vendor.application.reviewNotes,
+        created_at: vendor.createdAt,
+        updated_at: vendor.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error submitting application:', error);
+    res.status(500).json({
+      error: true,
+      message: 'Failed to submit application',
+      code: 'SUBMIT_APPLICATION_ERROR'
+    });
+  }
+}));
 
-    let documents = vendor.documents;
-
-    if (type) {
-      documents = documents.filter(doc => doc.documentType === type);
+// PATCH /api/vendors/applications/:id/status - Update application status (Admin only)
+router.patch('/applications/:id/status', auth.authenticateToken, auth.requireRole(['elika_admin']), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { status, reviewNotes } = req.body;
+  
+  console.log('Updating application status:', id, status);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
+      error: true,
+      message: 'Invalid application ID format',
+      code: 'INVALID_ID_FORMAT'
+    });
+  }
+  
+  try {
+    const vendor = await Vendor.findById(id);
+    
+    if (!vendor) {
+      return res.status(404).json({
+        error: true,
+        message: 'Application not found',
+        code: 'APPLICATION_NOT_FOUND'
+      });
     }
+    
+    // Update application status
+    vendor.application = {
+      ...vendor.application,
+      status,
+      reviewedAt: new Date(),
+      reviewedBy: req.user.id,
+      reviewNotes: reviewNotes || vendor.application?.reviewNotes
+    };
+    
+    await vendor.save();
+    
+    res.json({
+      success: true,
+      message: 'Application status updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating application status:', error);
+    res.status(500).json({
+      error: true,
+      message: 'Failed to update application status',
+      code: 'UPDATE_APPLICATION_ERROR'
+    });
+  }
+}));
 
-    // Sort by upload date (newest first)
-    documents.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
-
-    res.json({ documents });
+// GET /api/vendors/:id/documents - Get vendor documents
+router.get('/:id/documents', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Fetching documents for vendor:', id);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
+      error: true,
+      message: 'Invalid vendor ID format',
+      code: 'INVALID_ID_FORMAT'
+    });
+  }
+  
+  try {
+    const vendor = await Vendor.findById(id);
+    
+    if (!vendor) {
+      return res.status(404).json({
+        error: true,
+        message: 'Vendor not found',
+        code: 'VENDOR_NOT_FOUND'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: vendor.documents || []
+    });
   } catch (error) {
     console.error('Error fetching vendor documents:', error);
     res.status(500).json({
@@ -200,123 +274,188 @@ router.get('/:vendorId/documents', authenticateToken, async (req, res) => {
       code: 'FETCH_DOCUMENTS_ERROR'
     });
   }
-});
+}));
 
-router.post('/:vendorId/documents', 
-  authenticateToken,
-  upload.single('document'),
-  async (req, res) => {
-    try {
-      const { documentType, reviewNotes } = req.body;
-      const { vendorId } = req.params;
+// GET /api/vendors/:id - Get vendor by ID
+router.get('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Fetching vendor by ID:', id);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
+      error: true,
+      message: 'Invalid vendor ID format',
+      code: 'INVALID_ID_FORMAT'
+    });
+  }
+  
+  try {
+    const vendor = await Vendor.findById(id)
+      .populate('createdBy', 'email profile');
+    
+    if (!vendor) {
+      return res.status(404).json({
+        error: true,
+        message: 'Vendor not found',
+        code: 'VENDOR_NOT_FOUND'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: vendor
+    });
+  } catch (error) {
+    console.error('Error fetching vendor:', error);
+    res.status(500).json({
+      error: true,
+      message: 'Failed to fetch vendor',
+      code: 'FETCH_VENDOR_ERROR'
+    });
+  }
+}));
 
-      if (!req.file) {
-        return res.status(400).json({
-          error: true,
-          message: 'No file uploaded',
-          code: 'NO_FILE_UPLOADED'
-        });
-      }
+// POST /api/vendors - Create new vendor
+router.post('/', auth.authenticateToken, asyncHandler(async (req, res) => {
+  console.log('Creating new vendor:', req.body);
+  console.log('User from request:', req.user);
+  
+  if (!req.user || !req.user.id) {
+    return res.status(401).json({
+      error: true,
+      message: 'User authentication required',
+      code: 'USER_NOT_AUTHENTICATED'
+    });
+  }
 
-      if (!documentType) {
-        return res.status(400).json({
-          error: true,
-          message: 'Document type is required',
-          code: 'MISSING_DOCUMENT_TYPE'
-        });
-      }
-
-      const vendor = await Vendor.findById(vendorId);
-      if (!vendor) {
-        return res.status(404).json({
-          error: true,
-          message: 'Vendor not found',
-          code: 'VENDOR_NOT_FOUND'
-        });
-      }
-
-      const newDocument = {
-        documentType,
-        fileName: req.file.originalname,
-        fileUrl: `/uploads/vendor-documents/${req.file.filename}`,
-        fileSize: req.file.size,
-        status: 'pending',
-        reviewNotes,
-        uploadedAt: new Date()
+  try {
+    const vendorData = {
+      ...req.body,
+      createdBy: req.user.id,
+      status: 'pending'
+    };
+    
+    console.log('Vendor data with createdBy:', vendorData);
+    
+    const vendor = new Vendor(vendorData);
+    await vendor.save();
+    
+    // Update user role to vendor_admin and link to this vendor
+    const user = await User.findById(req.user.id);
+    if (user) {
+      // Add vendor_admin role with vendorId
+      const vendorRole = {
+        role: 'vendor_admin',
+        vendorId: vendor._id
       };
+      
+      // Remove any existing vendor roles and add the new one
+      user.roles = user.roles.filter(r => !['vendor_admin', 'vendor_recruiter'].includes(r.role));
+      user.roles.push(vendorRole);
+      
+      await user.save();
+      console.log('Updated user roles:', user.roles);
+    }
+    
+    await vendor.populate('createdBy', 'email profile');
+    
+    res.status(201).json({
+      success: true,
+      data: vendor,
+      message: 'Vendor created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating vendor:', error);
+    res.status(400).json({
+      error: true,
+      message: error.message || 'Failed to create vendor',
+      code: 'CREATE_VENDOR_ERROR'
+    });
+  }
+}));
 
-      vendor.documents.push(newDocument);
-      await vendor.save();
-
-      res.status(201).json({
-        message: 'Document uploaded successfully',
-        document: newDocument
-      });
-    } catch (error) {
-      console.error('Error uploading document:', error);
-      res.status(500).json({
+// PUT /api/vendors/:id - Update vendor
+router.put('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Updating vendor:', id, req.body);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
+      error: true,
+      message: 'Invalid vendor ID format',
+      code: 'INVALID_ID_FORMAT'
+    });
+  }
+  
+  try {
+    const vendor = await Vendor.findByIdAndUpdate(
+      id,
+      { ...req.body, updatedAt: new Date() },
+      { new: true, runValidators: true }
+    ).populate('createdBy', 'email profile');
+    
+    if (!vendor) {
+      return res.status(404).json({
         error: true,
-        message: 'Failed to upload document',
-        code: 'UPLOAD_DOCUMENT_ERROR'
+        message: 'Vendor not found',
+        code: 'VENDOR_NOT_FOUND'
       });
     }
+    
+    res.json({
+      success: true,
+      data: vendor,
+      message: 'Vendor updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating vendor:', error);
+    res.status(400).json({
+      error: true,
+      message: error.message || 'Failed to update vendor',
+      code: 'UPDATE_VENDOR_ERROR'
+    });
   }
-);
+}));
 
-router.patch('/:vendorId/documents/:documentId/status', 
-  authenticateToken,
-  requireRole(['elika_admin', 'vendor_admin']),
-  async (req, res) => {
-    try {
-      const { status, reviewNotes } = req.body;
-      const { vendorId, documentId } = req.params;
-
-      if (!['approved', 'rejected', 'pending'].includes(status)) {
-        return res.status(400).json({
-          error: true,
-          message: 'Invalid status',
-          code: 'INVALID_STATUS'
-        });
-      }
-
-      const vendor = await Vendor.findById(vendorId);
-      if (!vendor) {
-        return res.status(404).json({
-          error: true,
-          message: 'Vendor not found',
-          code: 'VENDOR_NOT_FOUND'
-        });
-      }
-
-      const document = vendor.documents.id(documentId);
-      if (!document) {
-        return res.status(404).json({
-          error: true,
-          message: 'Document not found',
-          code: 'DOCUMENT_NOT_FOUND'
-        });
-      }
-
-      document.status = status;
-      document.reviewNotes = reviewNotes;
-      document.reviewedBy = req.user._id;
-      document.reviewedAt = new Date();
-
-      await vendor.save();
-
-      res.json({
-        message: 'Document status updated successfully',
-        document
-      });
-    } catch (error) {
-      console.error('Error updating document status:', error);
-      res.status(500).json({
+// DELETE /api/vendors/:id - Delete vendor
+router.delete('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  
+  console.log('Deleting vendor:', id);
+  
+  if (!isValidObjectId(id)) {
+    return res.status(400).json({
+      error: true,
+      message: 'Invalid vendor ID format',
+      code: 'INVALID_ID_FORMAT'
+    });
+  }
+  
+  try {
+    const vendor = await Vendor.findByIdAndDelete(id);
+    
+    if (!vendor) {
+      return res.status(404).json({
         error: true,
-        message: 'Failed to update document status',
-        code: 'UPDATE_DOCUMENT_ERROR'
+        message: 'Vendor not found',
+        code: 'VENDOR_NOT_FOUND'
       });
     }
+    
+    res.json({
+      success: true,
+      message: 'Vendor deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting vendor:', error);
+    res.status(500).json({
+      error: true,
+      message: 'Failed to delete vendor',
+      code: 'DELETE_VENDOR_ERROR'
+    });
   }
-);
+}));
 
 module.exports = router;

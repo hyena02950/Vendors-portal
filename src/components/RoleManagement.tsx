@@ -18,6 +18,7 @@ interface RoleAssignment {
   vendorId: string | null;
   createdAt: string;
   vendorName?: string;
+  userName?: string;
 }
 
 interface Vendor {
@@ -60,7 +61,7 @@ export const RoleManagement = () => {
       console.log("User profiles fetched for role management:", data);
       const profileMap: {[key: string]: string} = {};
       data.profiles?.forEach((profile: any) => {
-        profileMap[profile._id] = profile.name || profile.email || 'Unknown';
+        profileMap[profile._id || profile.id] = profile.name || profile.email || 'Unknown';
       });
       
       setUserProfiles(profileMap);
@@ -85,11 +86,12 @@ export const RoleManagement = () => {
 
     if (response.ok) {
       const data = await response.json();
-      console.log('Found user via lookup:', data.userId);
+      console.log('Found user via lookup:', data);
       return data.userId;
     }
 
-    throw new Error(`User with email ${email} not found. Please make sure the user has signed up first.`);
+    const errorData = await response.json();
+    throw new Error(errorData.message || `User with email ${email} not found. Please make sure the user has signed up first.`);
   };
 
   const fetchRoles = async () => {
@@ -123,18 +125,7 @@ export const RoleManagement = () => {
         return;
       }
 
-      // Transform data to match frontend expectations
-      const transformedRoles = data.roles.map((role: any) => ({
-        _id: role._id,
-        userId: role.userId,
-        role: role.role,
-        vendorId: role.vendorId || null,
-        createdAt: role.createdAt,
-        vendorName: role.vendorId ? 
-          vendors.find(v => v._id === role.vendorId)?.name : undefined
-      }));
-
-      setRoles(transformedRoles);
+      setRoles(data.roles);
     } catch (error) {
       console.error('Unexpected error fetching roles:', error);
       toast({
@@ -185,7 +176,7 @@ export const RoleManagement = () => {
     if (isElikaAdmin) {
       const loadData = async () => {
         setLoading(true);
-        await fetchVendors(); // Fetch vendors first
+        await fetchVendors();
         await Promise.all([fetchRoles(), fetchUserProfiles()]);
         setLoading(false);
       };
@@ -217,7 +208,6 @@ export const RoleManagement = () => {
     setIsAddingRole(true);
 
     try {
-      // Get user ID from email
       const userId = await getUserIdFromEmail(newUserEmail);
 
       const token = getToken();
@@ -251,6 +241,7 @@ export const RoleManagement = () => {
       setSelectedVendor("");
       setDialogOpen(false);
       fetchRoles();
+      fetchUserProfiles();
     } catch (error: any) {
       console.error('Error adding role:', error);
       toast({
@@ -291,6 +282,7 @@ export const RoleManagement = () => {
       });
 
       fetchRoles();
+      fetchUserProfiles();
     } catch (error) {
       console.error('Error removing role:', error);
       toast({
@@ -436,7 +428,7 @@ export const RoleManagement = () => {
                 <div className="flex items-center space-x-3">
                   <div>
                     <div className="font-medium">
-                      {userProfiles[role.userId] || role.userId}
+                      {role.userName || userProfiles[role.userId] || role.userId}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {role.vendorName && `${role.vendorName} • `}

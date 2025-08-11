@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 
 const candidateSchema = new mongoose.Schema({
@@ -62,5 +63,8 @@ candidateSchema.index({ vendorId: 1 });
 candidateSchema.index({ jobId: 1 });
 candidateSchema.index({ status: 1 });
 candidateSchema.index({ email: 1 });
+
+// Compound unique index to prevent duplicate submissions
+candidateSchema.index({ vendorId: 1, jobId: 1, email: 1 }, { unique: true });
 
 module.exports = mongoose.model('Candidate', candidateSchema);

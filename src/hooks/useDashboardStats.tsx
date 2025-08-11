@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -13,6 +14,12 @@ interface DashboardStats {
   totalInvoices: number;
   pendingApprovals: number;
   pendingInvoicesAmount: number;
+  totalSubmissions: number;
+  shortlistedCandidates: number;
+  pendingInterviews: number;
+  completedJoins: number;
+  totalEarnings: number;
+  thisMonthEarnings: number;
   jobsTrend: number;
   candidatesTrend: number;
   interviewsTrend: number;
@@ -30,6 +37,12 @@ export const useDashboardStats = () => {
     totalInvoices: 0,
     pendingApprovals: 0,
     pendingInvoicesAmount: 0,
+    totalSubmissions: 0,
+    shortlistedCandidates: 0,
+    pendingInterviews: 0,
+    completedJoins: 0,
+    totalEarnings: 0,
+    thisMonthEarnings: 0,
     jobsTrend: 5,
     candidatesTrend: 12,
     interviewsTrend: 8,
@@ -55,7 +68,14 @@ export const useDashboardStats = () => {
         return;
       }
 
-      const response = await fetch('/api/dashboard/vendor-stats', {
+      let endpoint = '/api/dashboard/vendor-stats';
+      
+      // Use different endpoint for Elika users
+      if (isElikaUser) {
+        endpoint = '/api/dashboard/admin-stats';
+      }
+
+      const response = await fetch(endpoint, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -66,10 +86,10 @@ export const useDashboardStats = () => {
       }
 
       const data = await response.json();
-      setStats({
-        ...stats,
+      setStats(prevStats => ({
+        ...prevStats,
         ...data
-      });
+      }));
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard statistics';

@@ -1,130 +1,139 @@
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
-const morgan = require('morgan');
 const path = require('path');
+
+// Load environment variables
 require('dotenv').config();
 
-const connectDB = require('./config/database');
-const authRoutes = require('./routes/auth');
-const jobRoutes = require('./routes/jobs');
-const candidateRoutes = require('./routes/candidates');
-const interviewRoutes = require('./routes/interviews');
-const invoiceRoutes = require('./routes/invoices');
-const dashboardRoutes = require('./routes/dashboard');
-const fileRoutes = require('./routes/files');
-const vendorRoutes = require('./routes/vendors');
+// Import connectDB function (handling ES6 module)
+const connectDB = require('./config/database').default || require('./config/database');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
-// Connect to MongoDB
-connectDB();
+// Global error handler
+process.on('uncaughtException', (error) => {
+  console.error(`${new Date().toISOString()}: Uncaught Exception:`, error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`${new Date().toISOString()}: Unhandled Rejection at:`, promise, 'reason:', reason);
+});
+
+// Custom error handler middleware
+const globalErrorHandler = (error, req, res, next) => {
+  console.error(`${new Date().toISOString()}: Global error handler:`, error);
+  
+  if (res.headersSent) {
+    return next(error);
+  }
+  
+  res.status(500).json({
+    error: true,
+    message: 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+  });
+};
 
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
+  contentSecurityPolicy: false, // Disable CSP for React apps
+  crossOriginEmbedderPolicy: false
+}));
+
+// CORS configuration
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'http://localhost:3000'],
+  credentials: true
 }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: 'Too many requests from this IP, please try again later.',
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
 });
 app.use('/api/', limiter);
 
-// Middleware
+// Body parsing middleware
 app.use(compression());
-app.use(morgan('combined'));
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:8080',
-  credentials: true,
-}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Create uploads directory
-const fs = require('fs');
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Static files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Serve uploaded files
-app.use('/uploads', express.static(uploadsDir));
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    database: 'connected'
-  });
-});
+// Serve React static files
+const distPath = path.join(__dirname, '..', 'dist');
+app.use(express.static(distPath));
 
 // API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/jobs', jobRoutes);
-app.use('/api/candidates', candidateRoutes);
-app.use('/api/interviews', interviewRoutes);
-app.use('/api/invoices', invoiceRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api/vendors', vendorRoutes);
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/users', require('./routes/users'));
+app.use('/api/vendors', require('./routes/vendors'));
+app.use('/api/jobs', require('./routes/jobs'));
+app.use('/api/candidates', require('./routes/candidates'));
+app.use('/api/interviews', require('./routes/interviews'));
+app.use('/api/invoices', require('./routes/invoices'));
+app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/files', require('./routes/files'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/reminders', require('./routes/reminders'));
+app.use('/api/analytics', require('./routes/analytics'));
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../../dist')));
-  
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../dist/index.html'));
-  });
-}
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  
-  if (err.type === 'entity.too.large') {
-    return res.status(413).json({
-      error: true,
-      message: 'File too large',
-      code: 'FILE_TOO_LARGE'
+// Health check endpoint
+app.get('/api/health', async (req, res) => {
+  try {
+    const mongoose = require('mongoose');
+    const dbState = mongoose.connection.readyState;
+    const dbStatus = dbState === 1 ? 'connected' : dbState === 2 ? 'connecting' : 'disconnected';
+    
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      database: dbStatus,
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'ERROR',
+      message: error.message
     });
   }
-
-  res.status(500).json({
-    error: true,
-    message: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : err.message,
-    code: 'INTERNAL_ERROR'
-  });
 });
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: true,
-    message: 'Route not found',
-    code: 'NOT_FOUND'
-  });
+// Serve React app for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+// Error handling middleware (must be last)
+app.use(globalErrorHandler);
+
+// Start server function
+const startServer = async () => {
+  try {
+    // Connect to database first
+    console.log(`${new Date().toISOString()}: Connecting to database...`);
+    await connectDB();
+    console.log(`${new Date().toISOString()}: ✅ Database connected successfully`);
+
+    const PORT = process.env.PORT || 3001;
+    
+    app.listen(PORT, () => {
+      console.log(`${new Date().toISOString()}: ✅ Server is running on port ${PORT}`);
+      console.log(`${new Date().toISOString()}: Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`${new Date().toISOString()}: Health check: http://localhost:${PORT}/api/health`);
+    });
+  } catch (error) {
+    console.error(`${new Date().toISOString()}: ❌ Failed to start server:`, error);
+    process.exit(1);
+  }
+};
+
+// Start the server
+startServer();
 
 module.exports = app;

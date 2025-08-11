@@ -41,10 +41,15 @@ const VendorDashboard = () => {
 
           <Tabs defaultValue="onboarding" className="space-y-4">
             <TabsList>
-              <TabsTrigger value="onboarding">Document Upload</TabsTrigger>
+              <TabsTrigger value="onboarding">Vendor Onboarding</TabsTrigger>
+              <TabsTrigger value="documents">Document Upload</TabsTrigger>
             </TabsList>
 
             <TabsContent value="onboarding">
+              <VendorOnboarding />
+            </TabsContent>
+            
+            <TabsContent value="documents">
               <VendorOnboarding />
             </TabsContent>
           </Tabs>
