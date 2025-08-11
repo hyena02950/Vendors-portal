@@ -9,10 +9,15 @@ A robust Node.js/Express backend API for the Elika Vendor Portal with enhanced s
 - Environment-based configuration with validation
 - Enhanced CORS with configurable origins
 - Comprehensive helmet security headers
-- Rate limiting (general, login, and upload specific)
+- Multi-tier rate limiting (general, login, upload, and sensitive operations)
 - Secure file uploads with type validation
 - Request ID tracking for better debugging
 - Protected file serving (no public uploads)
+- Row-level security enforcement in API routes
+- Refresh token rotation and device tracking
+- Email verification and password reset flows
+- Two-factor authentication (2FA) for sensitive roles
+- Account lockout protection against brute force attacks
 
 ### ✅ Validation & Error Handling
 - Joi-based request validation for all endpoints
@@ -113,11 +118,15 @@ backend/
 
 ## Security Enhancements
 
-- **File Upload Security**: Type validation, filename sanitization, size limits
-- **Rate Limiting**: Tiered limits for different endpoint types
+- **File Upload Security**: Type validation, filename sanitization, size limits, secure serving
+- **Rate Limiting**: Multi-tier limits (general, login, upload, sensitive operations)
 - **Input Validation**: Joi schemas for all request bodies/queries
 - **Error Sanitization**: Secure error responses in production
 - **CORS Configuration**: Environment-based origin control
+- **Row-Level Security**: Vendor data isolation and cross-tenant protection
+- **Token Security**: Refresh token rotation, device tracking, revocation
+- **Account Protection**: Login attempt limiting, account lockout, 2FA for admins
+- **File Access Control**: Authenticated file serving, vendor ownership validation
 
 ## Monitoring & Debugging
 
@@ -134,7 +143,9 @@ See `.env.example` for complete configuration options including:
 - Security settings
 - Rate limiting configuration
 - Admin bootstrap settings
-- Feature flags
+- 2FA and email verification settings
+- Account security settings
+- File storage configuration
 
 ## Production Deployment
 
@@ -144,6 +155,9 @@ See `.env.example` for complete configuration options including:
 4. Configure `CORS_ORIGINS` for your frontend domains
 5. Set strong admin credentials
 6. Enable process manager (PM2 recommended)
+7. Configure email service for verification/reset emails
+8. Set up 2FA for admin accounts
+9. Configure S3 for secure file storage (recommended)
 
 ## Testing
 

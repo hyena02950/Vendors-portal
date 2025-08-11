@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const Vendor = require('../models/Vendor');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const { enforceVendorScope } = require('../middleware/vendorAccess');
+const { sensitiveOperationsLimiter } = require('../middleware/rateLimiter');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 
@@ -56,17 +58,33 @@ router.get('/workflow-status', auth.authenticateToken, asyncHandler(async (req, 
 }));
 
 // GET /api/vendors - Get all vendors
-router.get('/', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.get('/', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
   console.log('Fetching all vendors');
   
   try {
-    const vendors = await Vendor.find()
-      .populate('createdBy', 'email profile')
-      .sort({ createdAt: -1 });
+    const userRoles = req.userRoles || [];
+    const isElikaUser = userRoles.some(role => 
+      ['elika_admin', 'delivery_head', 'finance_team'].includes(role.role)
+    );
+    
+    let vendors;
+    
+    if (isElikaUser) {
+      // Elika users can see all vendors
+      vendors = await Vendor.find()
+        .populate('createdBy', 'email profile')
+        .sort({ createdAt: -1 });
+    } else {
+      // Vendor users can only see their own vendor
+      vendors = await Vendor.find({ _id: req.vendorId })
+        .populate('createdBy', 'email profile')
+        .sort({ createdAt: -1 });
+    }
     
     res.json({
       success: true,
-      data: vendors
+      data: vendors,
+      vendors: vendors // For backward compatibility
     });
   } catch (error) {
     console.error('Error fetching vendors:', error);
@@ -79,7 +97,7 @@ router.get('/', auth.authenticateToken, asyncHandler(async (req, res) => {
 }));
 
 // GET /api/vendors/:id/application - Get vendor application
-router.get('/:id/application', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.get('/:id/application', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   console.log('Fetching application for vendor:', id);
@@ -128,7 +146,7 @@ router.get('/:id/application', auth.authenticateToken, asyncHandler(async (req, 
 }));
 
 // POST /api/vendors/:id/application/submit - Submit vendor application
-router.post('/:id/application/submit', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.post('/:id/application/submit', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   console.log('Submitting application for vendor:', id);
@@ -187,7 +205,7 @@ router.post('/:id/application/submit', auth.authenticateToken, asyncHandler(asyn
 }));
 
 // PATCH /api/vendors/applications/:id/status - Update application status (Admin only)
-router.patch('/applications/:id/status', auth.authenticateToken, auth.requireRole(['elika_admin']), asyncHandler(async (req, res) => {
+router.patch('/applications/:id/status', auth.authenticateToken, auth.requireRole(['elika_admin']), sensitiveOperationsLimiter, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, reviewNotes } = req.body;
   
@@ -238,7 +256,7 @@ router.patch('/applications/:id/status', auth.authenticateToken, auth.requireRol
 }));
 
 // GET /api/vendors/:id/documents - Get vendor documents
-router.get('/:id/documents', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.get('/:id/documents', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   console.log('Fetching documents for vendor:', id);
@@ -277,7 +295,7 @@ router.get('/:id/documents', auth.authenticateToken, asyncHandler(async (req, re
 }));
 
 // GET /api/vendors/:id - Get vendor by ID
-router.get('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.get('/:id', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   console.log('Fetching vendor by ID:', id);
@@ -376,7 +394,7 @@ router.post('/', auth.authenticateToken, asyncHandler(async (req, res) => {
 }));
 
 // PUT /api/vendors/:id - Update vendor
-router.put('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.put('/:id', auth.authenticateToken, enforceVendorScope('vendor'), sensitiveOperationsLimiter, asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   console.log('Updating vendor:', id, req.body);
@@ -420,7 +438,7 @@ router.put('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
 }));
 
 // DELETE /api/vendors/:id - Delete vendor
-router.delete('/:id', auth.authenticateToken, asyncHandler(async (req, res) => {
+router.delete('/:id', auth.authenticateToken, auth.requireRole(['elika_admin']), sensitiveOperationsLimiter, asyncHandler(async (req, res) => {
   const { id } = req.params;
   
   console.log('Deleting vendor:', id);

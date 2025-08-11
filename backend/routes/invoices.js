@@ -2,6 +2,8 @@
 const express = require('express');
 const Invoice = require('../models/Invoice');
 const { authenticateToken, requireVendorAccess, requireRole } = require('../middleware/auth');
+const { uploadLimiter, sensitiveOperationsLimiter } = require('../middleware/rateLimiter');
+const { enforceVendorScope } = require('../middleware/vendorAccess');
 const fileUploadService = require('../services/fileUploadService');
 const AppError = require('../utils/AppError');
 
@@ -11,6 +13,7 @@ const router = express.Router();
 router.post('/upload', 
   authenticateToken, 
   requireVendorAccess, 
+  uploadLimiter,
   fileUploadService.getUploadMiddleware('invoices'),
   fileUploadService.upload.single('invoice'), 
   async (req, res) => {
@@ -103,6 +106,7 @@ router.post('/upload',
 router.get('/my-invoices', authenticateToken, requireVendorAccess, async (req, res) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
+  enforceVendorScope('invoice'),
     const skip = (page - 1) * limit;
 
     let query = { vendorId: req.vendorId };
@@ -157,7 +161,7 @@ router.get('/my-invoices', authenticateToken, requireVendorAccess, async (req, r
 });
 
 // Approve/reject invoice (admin only)
-router.patch('/:id/status', authenticateToken, requireRole(['elika_admin', 'finance_team']), async (req, res) => {
+router.patch('/:id/status', authenticateToken, requireRole(['elika_admin', 'finance_team']), sensitiveOperationsLimiter, asyncHandler(async (req, res) => {
   try {
     const { status, notes } = req.body;
     const invoiceId = req.params.id;

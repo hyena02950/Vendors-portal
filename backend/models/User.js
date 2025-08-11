@@ -45,9 +45,32 @@ const userSchema = new mongoose.Schema({
   emailVerified: {
     type: Boolean,
     default: false
-  }
+  },
+  tokenVersion: {
+    type: Number,
+    default: 0
+  },
+  passwordChangedAt: Date,
+  loginAttempts: {
+    type: Number,
+    default: 0
+  },
+  lockUntil: Date
 }, {
   timestamps: true
+});
+
+// Virtual for checking if account is locked
+userSchema.virtual('isLocked').get(function() {
+  return !!(this.lockUntil && this.lockUntil > Date.now());
+});
+
+// Pre-save middleware to update passwordChangedAt
+userSchema.pre('save', function(next) {
+  if (!this.isModified('password') || this.isNew) return next();
+  
+  this.passwordChangedAt = new Date();
+  next();
 });
 
 // Hash password before saving
@@ -78,6 +101,33 @@ userSchema.methods.hasRole = function(role) {
 userSchema.methods.getVendorId = function() {
   const vendorRole = this.roles.find(r => ['vendor_admin', 'vendor_recruiter'].includes(r.role));
   return vendorRole ? vendorRole.vendorId : null;
+};
+
+// Increment login attempts
+userSchema.methods.incLoginAttempts = function() {
+  // If we have a previous lock that has expired, restart at 1
+  if (this.lockUntil && this.lockUntil < Date.now()) {
+    return this.updateOne({
+      $unset: { lockUntil: 1 },
+      $set: { loginAttempts: 1 }
+    });
+  }
+  
+  const updates = { $inc: { loginAttempts: 1 } };
+  
+  // Lock account after 5 failed attempts for 2 hours
+  if (this.loginAttempts + 1 >= 5 && !this.isLocked) {
+    updates.$set = { lockUntil: Date.now() + 2 * 60 * 60 * 1000 }; // 2 hours
+  }
+  
+  return this.updateOne(updates);
+};
+
+// Reset login attempts
+userSchema.methods.resetLoginAttempts = function() {
+  return this.updateOne({
+    $unset: { loginAttempts: 1, lockUntil: 1 }
+  });
 };
 
 module.exports = mongoose.model('User', userSchema);

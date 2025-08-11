@@ -1,5 +1,5 @@
 // API Client utility for making HTTP requests to the custom backend
-import { getToken } from './auth';
+import { getAccessToken, refreshAccessToken } from './auth';
 
 interface ApiResponse<T = any> {
   data?: T;
@@ -18,7 +18,7 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    const token = getToken();
+    let token = getAccessToken();
     const url = `${this.baseURL}${endpoint}`;
 
     const config: RequestInit = {
@@ -32,6 +32,38 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config);
+      
+      // Handle token expiration
+      if (response.status === 401) {
+        const errorData = await response.json();
+        if (errorData.code === 'TOKEN_EXPIRED') {
+          // Try to refresh token
+          const refreshed = await refreshAccessToken();
+          if (refreshed) {
+            // Retry request with new token
+            const newToken = getAccessToken();
+            const retryConfig = {
+              ...config,
+              headers: {
+                ...config.headers,
+                Authorization: `Bearer ${newToken}`,
+              },
+            };
+            
+            const retryResponse = await fetch(url, retryConfig);
+            const retryData = await retryResponse.json();
+            
+            if (!retryResponse.ok) {
+              return {
+                error: retryData.message || `HTTP ${retryResponse.status}: ${retryResponse.statusText}`,
+              };
+            }
+            
+            return { data: retryData };
+          }
+        }
+      }
+      
       const data = await response.json();
 
       if (!response.ok) {

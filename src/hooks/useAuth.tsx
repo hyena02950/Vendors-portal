@@ -1,5 +1,15 @@
 import { useState, useEffect, createContext, useContext } from "react";
-import { setToken, setUser, removeToken, removeUser, getToken, getUser } from "@/utils/auth";
+import { 
+  setTokens, 
+  setUser, 
+  removeTokens, 
+  removeUser, 
+  getAccessToken, 
+  getRefreshToken,
+  getUser,
+  refreshAccessToken,
+  signOut as authSignOut
+} from "@/utils/auth";
 
 interface User {
   id: string;
@@ -26,11 +36,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     // Check for existing session on mount
-    const token = getToken();
+    const accessToken = getAccessToken();
     const userData = getUser();
     
-    if (token && userData) {
+    if (accessToken && userData) {
       setUserState(userData);
+    } else {
+      // Try to refresh token if we have a refresh token
+      const refreshToken = getRefreshToken();
+      if (refreshToken) {
+        refreshAccessToken().then(success => {
+          if (success) {
+            const updatedUser = getUser();
+            setUserState(updatedUser);
+          }
+        });
+      }
     }
     
     setLoading(false);
@@ -57,7 +78,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return { error: { message: data.message || 'Registration failed' } };
       }
 
-      setToken(data.token);
+      setTokens(data.accessToken, data.refreshToken);
       setUser(data.user);
       setUserState(data.user);
 
@@ -81,10 +102,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const data = await response.json();
 
       if (!response.ok) {
+        if (data.requires2FA) {
+          return { error: { message: '2FA required', requires2FA: true, tempUserId: data.tempUserId } };
+        }
         return { error: { message: data.message || 'Login failed' } };
       }
 
-      setToken(data.token);
+      setTokens(data.accessToken, data.refreshToken);
       setUser(data.user);
       setUserState(data.user);
 
@@ -97,22 +121,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     try {
-      const token = getToken();
-      if (token) {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-      }
+      await authSignOut();
     } catch (error) {
       console.error('Sign out error:', error);
-    } finally {
-      removeToken();
-      removeUser();
-      setUserState(null);
     }
+    setUserState(null);
   };
 
   return (

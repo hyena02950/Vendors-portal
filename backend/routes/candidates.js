@@ -5,6 +5,8 @@ const JobDescription = require('../models/JobDescription');
 const { authenticateToken, requireVendorAccess } = require('../middleware/auth');
 const { validateBody, validateQuery } = require('../middleware/validate');
 const { submitCandidateSchema, candidateQuerySchema } = require('../validators/candidates');
+const { uploadLimiter } = require('../middleware/rateLimiter');
+const { enforceVendorScope } = require('../middleware/vendorAccess');
 const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const fileUploadService = require('../services/fileUploadService');
@@ -15,6 +17,7 @@ const router = express.Router();
 router.post('/submit', 
   authenticateToken, 
   requireVendorAccess,
+  uploadLimiter,
   fileUploadService.getUploadMiddleware('resumes'),
   fileUploadService.upload.single('resume'),
   validateBody(submitCandidateSchema),
@@ -104,6 +107,7 @@ router.post('/submit',
 router.get('/my-submissions', 
   authenticateToken, 
   requireVendorAccess,
+  enforceVendorScope('candidate'),
   validateQuery(candidateQuerySchema),
   asyncHandler(async (req, res) => {
     const { page, limit, status } = req.query;

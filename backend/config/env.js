@@ -25,8 +25,8 @@ module.exports = {
   
   // CORS
   CORS_ORIGINS: process.env.CORS_ORIGINS ? 
-    process.env.CORS_ORIGINS.split(',') : 
-    ['http://localhost:3000', 'http://localhost:5173'],
+    process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()) : 
+    ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8080'],
   
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000,
@@ -53,4 +53,16 @@ module.exports = {
   
   // File Storage Mode
   FILE_STORAGE_MODE: process.env.FILE_STORAGE_MODE || 'local', // 'local' or 's3'
+  
+  // Security Settings
+  REQUIRE_EMAIL_VERIFICATION: process.env.REQUIRE_EMAIL_VERIFICATION === 'true',
+  ENABLE_2FA_FOR_ADMINS: process.env.ENABLE_2FA_FOR_ADMINS !== 'false', // Default to true
+  
+  // Session Settings
+  ACCESS_TOKEN_EXPIRY: process.env.ACCESS_TOKEN_EXPIRY || '15m',
+  REFRESH_TOKEN_EXPIRY: process.env.REFRESH_TOKEN_EXPIRY || '7d',
+  
+  // Account Security
+  MAX_LOGIN_ATTEMPTS: parseInt(process.env.MAX_LOGIN_ATTEMPTS) || 5,
+  ACCOUNT_LOCK_TIME: parseInt(process.env.ACCOUNT_LOCK_TIME) || 2 * 60 * 60 * 1000, // 2 hours
 };
