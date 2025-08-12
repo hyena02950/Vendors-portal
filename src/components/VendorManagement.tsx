@@ -71,7 +71,18 @@ export const VendorManagement = () => {
       }
 
       const data = await response.json();
-      setVendors(data.vendors || []);
+      // Transform the data to match expected structure
+      const vendorList = (data.vendors || []).map(vendor => ({
+        id: vendor._id || vendor.id,
+        name: vendor.name,
+        email: vendor.email,
+        phone: vendor.phone,
+        address: vendor.address,
+        contact_person: vendor.contactPerson,
+        status: vendor.status,
+        created_at: vendor.createdAt
+      }));
+      setVendors(vendorList);
     } catch (error) {
       console.error('Error fetching vendors:', error);
       toast({

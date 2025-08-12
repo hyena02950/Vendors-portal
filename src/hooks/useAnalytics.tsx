@@ -90,87 +90,37 @@ export const useAnalytics = (timeRange: string = 'last30days') => {
         throw new Error('Failed to fetch analytics data');
       }
 
-      const { vendors, documents, candidates, applications } = await response.json();
+      const analyticsResponse = await response.json();
+      console.log('Analytics API response:', analyticsResponse);
 
-      // Calculate vendor metrics
-      const totalVendors = vendors?.length || 0;
-      const activeVendors = vendors?.filter(v => v.status === 'active').length || 0;
-      const pendingVendors = vendors?.filter(v => v.status === 'pending').length || 0;
-      const approvedApplications = applications?.filter(a => a.status === 'approved').length || 0;
-      const vendorApprovalRate = applications?.length ? (approvedApplications / applications.length) * 100 : 0;
-
-      // Calculate average onboarding time
-      const completedOnboarding = applications?.filter(a => a.status === 'approved' && a.reviewed_at) || [];
-      const avgOnboardingTime = completedOnboarding.length > 0 
-        ? completedOnboarding.reduce((acc, app) => {
-            const created = new Date(app.created_at);
-            const approved = new Date(app.reviewed_at!);
-            return acc + (approved.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
-          }, 0) / completedOnboarding.length 
-        : 0;
-
-      // Calculate document metrics
-      const totalDocuments = documents?.length || 0;
-      const approvedDocuments = documents?.filter(d => d.status === 'approved').length || 0;
-      const rejectedDocuments = documents?.filter(d => d.status === 'rejected').length || 0;
-      const pendingDocuments = documents?.filter(d => d.status === 'pending').length || 0;
-      const documentApprovalRate = totalDocuments > 0 ? (approvedDocuments / totalDocuments) * 100 : 0;
-
-      // Calculate average document processing time
-      const processedDocs = documents?.filter(d => d.reviewed_at) || [];
-      const avgProcessingTime = processedDocs.length > 0
-        ? processedDocs.reduce((acc, doc) => {
-            const uploaded = new Date(doc.uploaded_at!);
-            const reviewed = new Date(doc.reviewed_at!);
-            return acc + (reviewed.getTime() - uploaded.getTime()) / (1000 * 60 * 60 * 24);
-          }, 0) / processedDocs.length
-        : 0;
-
-      // Calculate candidate metrics
-      const totalCandidates = candidates?.length || 0;
-      const submittedThisMonth = candidates?.filter(c => {
-        const submitted = new Date(c.submitted_at);
-        const thisMonth = new Date();
-        thisMonth.setDate(1);
-        return submitted >= thisMonth;
-      }).length || 0;
-
-      const interviewsScheduled = 0; // Will be calculated from candidates data
-      const hiredCandidates = candidates?.filter(c => c.status === 'hired').length || 0;
-      const placementRate = totalCandidates > 0 ? (hiredCandidates / totalCandidates) * 100 : 0;
-
-      // Generate performance data
-      const monthlySubmissions = generateMonthlyData(candidates || []);
-      const vendorPerformance = generateVendorPerformanceData(candidates || [], documents || []);
-      const documentProcessingTrends = generateDocumentTrends(documents || []);
-
+      // Use the structured response from the API
       const analyticsData: AnalyticsData = {
-        vendorMetrics: {
-          totalVendors,
-          activeVendors,
-          pendingVendors,
-          approvalRate: vendorApprovalRate,
-          avgOnboardingTime,
+        vendorMetrics: analyticsResponse.vendorMetrics || {
+          totalVendors: 0,
+          activeVendors: 0,
+          pendingVendors: 0,
+          approvalRate: 0,
+          avgOnboardingTime: 0,
         },
-        documentMetrics: {
-          totalDocuments,
-          approvedDocuments,
-          rejectedDocuments,
-          pendingDocuments,
-          approvalRate: documentApprovalRate,
-          avgProcessingTime,
+        documentMetrics: analyticsResponse.documentMetrics || {
+          totalDocuments: 0,
+          approvedDocuments: 0,
+          rejectedDocuments: 0,
+          pendingDocuments: 0,
+          approvalRate: 0,
+          avgProcessingTime: 0,
         },
-        candidateMetrics: {
-          totalCandidates,
-          submittedThisMonth,
-          interviewsScheduled,
-          hiredCandidates,
-          placementRate,
+        candidateMetrics: analyticsResponse.candidateMetrics || {
+          totalCandidates: 0,
+          submittedThisMonth: 0,
+          interviewsScheduled: 0,
+          hiredCandidates: 0,
+          placementRate: 0,
         },
-        performanceData: {
-          monthlySubmissions,
-          vendorPerformance,
-          documentProcessingTrends,
+        performanceData: analyticsResponse.performanceData || {
+          monthlySubmissions: [],
+          vendorPerformance: [],
+          documentProcessingTrends: [],
         },
         timeRangeData: {
           startDate,

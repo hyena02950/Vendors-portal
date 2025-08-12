@@ -51,7 +51,7 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
       return;
     }
 
-    if (!formData.name || !formData.email || !formData.contact_person) {
+    if (!formData.name || !formData.contact_person) {
       console.error('Validation failed', formData);
       toast({
         title: "Validation Error",
@@ -66,7 +66,7 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
     try {
       console.log('Making API request to /api/vendors with:', {
         name: formData.name,
-        email: formData.email,
+        email: formData.email || user.email,
         phone: formData.phone,
         address: formData.address,
         contactPerson: formData.contact_person,
@@ -80,7 +80,7 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
         },
         body: JSON.stringify({
           name: formData.name,
-          email: formData.email,
+          email: formData.email || user.email,
           phone: formData.phone,
           address: formData.address,
           contactPerson: formData.contact_person,
@@ -113,10 +113,8 @@ export const NewVendorRegistration = ({ onVendorCreated }: NewVendorRegistration
         contact_person: "",
       });
 
-      if (data.data && data.data.id) {
-        onVendorCreated(data.data.id);
-      } else if (data.vendor && data.vendor.id) {
-        onVendorCreated(data.vendor.id);
+      if (data.data && data.data._id) {
+        onVendorCreated(data.data._id);
       } else {
         console.error('Unexpected response structure:', data);
       }

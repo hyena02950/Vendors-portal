@@ -2,7 +2,7 @@
 const request = require('supertest');
 const app = require('../server');
 const User = require('../models/User');
-const { connectDB } = require('../config/database');
+const connectDB = require('../config/database').default || require('../config/database');
 
 describe('Authentication', () => {
   beforeAll(async () => {
@@ -27,7 +27,7 @@ describe('Authentication', () => {
         .send(userData)
         .expect(201);
 
-      expect(response.body.token).toBeDefined();
+      expect(response.body.accessToken).toBeDefined();
       expect(response.body.user.email).toBe(userData.email);
     });
 
@@ -64,7 +64,7 @@ describe('Authentication', () => {
         })
         .expect(200);
 
-      expect(response.body.token).toBeDefined();
+      expect(response.body.accessToken).toBeDefined();
       expect(response.body.user.email).toBe('test@example.com');
     });
 

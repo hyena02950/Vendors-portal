@@ -9,6 +9,57 @@ const AppError = require('../utils/AppError');
 
 const router = express.Router();
 
+// Get all vendor applications (Admin only)
+router.get('/applications', 
+  authenticateToken, 
+  requireRole(['elika_admin', 'delivery_head']), 
+  asyncHandler(async (req, res) => {
+    try {
+      const vendors = await Vendor.find()
+        .populate('createdBy', 'email profile')
+        .sort({ createdAt: -1 });
+
+      const applications = vendors.map(vendor => {
+        const totalDocuments = vendor.documents.length;
+        const approvedDocuments = vendor.documents.filter(doc => doc.status === 'approved').length;
+        const mandatoryDocs = ['nda', 'gst_certificate'];
+        const mandatoryDocumentsApproved = mandatoryDocs.every(docType => 
+          vendor.documents.some(doc => doc.documentType === docType && doc.status === 'approved')
+        );
+
+        return {
+          id: vendor._id.toString(),
+          vendor_id: vendor._id.toString(),
+          status: vendor.application?.status || 'draft',
+          submitted_at: vendor.application?.submittedAt || null,
+          reviewed_at: vendor.application?.reviewedAt || null,
+          reviewed_by: vendor.application?.reviewedBy || null,
+          review_notes: vendor.application?.reviewNotes || null,
+          created_at: vendor.createdAt,
+          updated_at: vendor.updatedAt,
+          vendor_name: vendor.name,
+          vendor_email: vendor.email,
+          vendor_status: vendor.status,
+          total_documents: totalDocuments,
+          approved_documents: approvedDocuments,
+          mandatory_documents_approved: mandatoryDocumentsApproved
+        };
+      });
+
+      res.json({
+        applications
+      });
+    } catch (error) {
+      console.error('Error fetching vendor applications:', error);
+      res.status(500).json({
+        error: true,
+        message: 'Failed to fetch vendor applications',
+        code: 'FETCH_APPLICATIONS_ERROR'
+      });
+    }
+  })
+);
+
 // Get all documents for review (Admin only)
 router.get('/documents', 
   authenticateToken, 

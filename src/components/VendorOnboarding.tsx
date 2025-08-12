@@ -96,7 +96,7 @@ export const VendorOnboarding = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('Vendor info fetched:', data);
-        setVendorInfo(data);
+        setVendorInfo(data.data || data);
       } else {
         console.error('Error fetching vendor info');
       }
@@ -162,7 +162,7 @@ export const VendorOnboarding = () => {
 
       const data = await response.json();
       console.log('Documents fetched:', data);
-      setDocuments(data.documents || []);
+      setDocuments(data.data || []);
     } catch (error) {
       console.error('Error fetching documents:', error);
       toast({

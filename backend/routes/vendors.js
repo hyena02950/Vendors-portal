@@ -83,7 +83,6 @@ router.get('/', auth.authenticateToken, enforceVendorScope('vendor'), asyncHandl
     
     res.json({
       success: true,
-      data: vendors,
       vendors: vendors // For backward compatibility
     });
   } catch (error) {
@@ -205,6 +204,62 @@ router.post('/:id/application/submit', auth.authenticateToken, enforceVendorScop
 }));
 
 // PATCH /api/vendors/applications/:id/status - Update application status (Admin only)
+router.patch('/:id/status', 
+  auth.authenticateToken, 
+  auth.requireRole(['elika_admin']), 
+  sensitiveOperationsLimiter, 
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    console.log('Updating vendor status:', id, status);
+    
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invalid vendor ID format',
+        code: 'INVALID_ID_FORMAT'
+      });
+    }
+    
+    if (!['pending', 'active', 'inactive', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        error: true,
+        message: 'Invalid status value',
+        code: 'INVALID_STATUS'
+      });
+    }
+    
+    try {
+      const vendor = await Vendor.findByIdAndUpdate(
+        id,
+        { status, updatedAt: new Date() },
+        { new: true, runValidators: true }
+      );
+      
+      if (!vendor) {
+        return res.status(404).json({
+          error: true,
+          message: 'Vendor not found',
+          code: 'VENDOR_NOT_FOUND'
+        });
+      }
+      
+      res.json({
+        success: true,
+        message: 'Vendor status updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating vendor status:', error);
+      res.status(500).json({
+        error: true,
+        message: 'Failed to update vendor status',
+        code: 'UPDATE_STATUS_ERROR'
+      });
+    }
+  })
+);
+
 router.patch('/applications/:id/status', auth.authenticateToken, auth.requireRole(['elika_admin']), sensitiveOperationsLimiter, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, reviewNotes } = req.body;
@@ -348,8 +403,23 @@ router.post('/', auth.authenticateToken, asyncHandler(async (req, res) => {
   }
 
   try {
+    // Validate required fields
+    const { name, email, phone, address, contactPerson } = req.body;
+    
+    if (!name || !contactPerson) {
+      return res.status(400).json({
+        error: true,
+        message: 'Name and contact person are required',
+        code: 'MISSING_REQUIRED_FIELDS'
+      });
+    }
+
     const vendorData = {
-      ...req.body,
+      name,
+      email: email || req.user.email,
+      phone,
+      address,
+      contactPerson,
       createdBy: req.user.id,
       status: 'pending'
     };

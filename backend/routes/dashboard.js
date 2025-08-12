@@ -12,6 +12,8 @@ const router = express.Router();
 // Get vendor dashboard stats
 router.get('/vendor-stats', authenticateToken, requireVendorAccess, async (req, res) => {
   try {
+    console.log('Fetching vendor stats for vendor:', req.vendorId);
+    
     // Get active jobs count
     const activeJobs = await JobDescription.countDocuments({
       assignedVendors: req.vendorId,
@@ -66,6 +68,17 @@ router.get('/vendor-stats', authenticateToken, requireVendorAccess, async (req, 
     });
     const thisMonthEarnings = thisMonthInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
 
+    console.log('Vendor stats calculated:', {
+      activeJobs,
+      totalSubmissions,
+      shortlistedCandidates,
+      pendingInterviews,
+      completedJoins,
+      pendingInvoices,
+      totalEarnings,
+      thisMonthEarnings
+    });
+
     res.json({
       activeJobs: activeJobs || 0,
       totalSubmissions: totalSubmissions || 0,
@@ -83,6 +96,11 @@ router.get('/vendor-stats', authenticateToken, requireVendorAccess, async (req, 
       totalInvoices: pendingInvoices || 0,
       pendingApprovals: pendingInvoices || 0,
       pendingInvoicesAmount: paidInvoices.reduce((sum, invoice) => sum + (invoice.status === 'pending' ? invoice.amount : 0), 0)
+      // Add trend data (mock for now)
+      jobsTrend: 5,
+      candidatesTrend: 12,
+      interviewsTrend: 8,
+      invoicesTrend: -2
     });
   } catch (error) {
     console.error('Error fetching vendor stats:', error);
@@ -97,6 +115,8 @@ router.get('/vendor-stats', authenticateToken, requireVendorAccess, async (req, 
 // Get admin dashboard stats (Elika users only)
 router.get('/admin-stats', authenticateToken, requireRole(['elika_admin', 'delivery_head', 'finance_team']), async (req, res) => {
   try {
+    console.log('Fetching admin stats');
+    
     // Get all stats across all vendors
     const activeJobs = await JobDescription.countDocuments({ status: 'active' });
     const totalCandidates = await Candidate.countDocuments();
@@ -109,6 +129,16 @@ router.get('/admin-stats', authenticateToken, requireRole(['elika_admin', 'deliv
     const pendingInvoicesList = await Invoice.find({ status: 'pending' });
     const pendingInvoicesAmount = pendingInvoicesList.reduce((sum, invoice) => sum + invoice.amount, 0);
 
+    console.log('Admin stats calculated:', {
+      activeJobs,
+      totalCandidates,
+      scheduledInterviews,
+      pendingInvoices,
+      totalInvoices,
+      pendingApprovals,
+      pendingInvoicesAmount
+    });
+
     res.json({
       activeJobs: activeJobs || 0,
       totalCandidates: totalCandidates || 0,
@@ -118,7 +148,12 @@ router.get('/admin-stats', authenticateToken, requireRole(['elika_admin', 'deliv
       pendingInvoices: pendingInvoices || 0,
       totalInvoices: totalInvoices || 0,
       pendingApprovals: pendingApprovals || 0,
-      pendingInvoicesAmount: pendingInvoicesAmount || 0
+      pendingInvoicesAmount: pendingInvoicesAmount || 0,
+      // Add trend data (mock for now)
+      jobsTrend: 8,
+      candidatesTrend: 15,
+      interviewsTrend: 10,
+      invoicesTrend: 3
     });
   } catch (error) {
     console.error('Error fetching admin stats:', error);
